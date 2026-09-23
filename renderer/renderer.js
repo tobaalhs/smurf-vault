@@ -218,6 +218,13 @@ function sortedAccounts() {
   return list.sort(cmp);
 }
 
+// Emblema oficial del rango (incluido en assets/ranks); un rombo de color si el tier es desconocido.
+function emblem(tier) {
+  return TIERS.includes(tier)
+    ? `<img class="emblem" src="assets/ranks/${tier.toLowerCase()}.png" alt="" />`
+    : '<span class="gem"></span>';
+}
+
 function rankRow(title, r) {
   if (!r) {
     return `<div class="rank"><span class="rank-q">${title}</span><span class="rank-name t-none">Sin rango</span><span></span></div>`;
@@ -226,7 +233,7 @@ function rankRow(title, r) {
   const wr = games ? Math.round((r.wins / games) * 100) : 0;
   return `<div class="rank">
     <span class="rank-q">${title}</span>
-    <span class="rank-name t-${r.tier.toLowerCase()}"><span class="gem"></span>${TIER_ES[r.tier] || r.tier}${r.division ? ' ' + r.division : ''} <span class="lp">${r.lp} LP</span></span>
+    <span class="rank-name t-${r.tier.toLowerCase()}">${emblem(r.tier)}${TIER_ES[r.tier] || r.tier}${r.division ? ' ' + r.division : ''} <span class="lp">${r.lp} LP</span></span>
     <span class="rank-wr">${games ? `${r.wins}V ${r.losses}D · ${wr}%<div class="wrbar"><i class="${wr >= 50 ? 'good' : ''}" data-w="${wr}"></i></div>` : ''}</span>
   </div>`;
 }
