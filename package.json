@@ -1,7 +1,8 @@
 {
-  "name": "passwordlol",
+  "name": "smurf-vault",
+  "productName": "Smurf Vault",
   "version": "0.1.0",
-  "description": "Bóveda cifrada de cuentas de League of Legends sincronizada con Google Drive",
+  "description": "Bóveda cifrada para tus cuentas de Riot, sincronizada con Google Drive",
   "main": "main.js",
   "private": true,
   "scripts": {

@@ -277,7 +277,7 @@ function createWindow() {
     minWidth: 820,
     minHeight: 560,
     backgroundColor: '#0a0e13',
-    title: 'PasswordLOL',
+    title: 'Smurf Vault',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

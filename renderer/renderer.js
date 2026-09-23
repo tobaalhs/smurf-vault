@@ -112,7 +112,7 @@ async function showLock() {
   const g = status.google;
   $('#lockGoogleText').textContent = g.linked
     ? `Drive vinculado: ${g.email || 'cuenta de Google'}`
-    : '¿Ya usabas PasswordLOL en otro PC?';
+    : '¿Ya usabas Smurf Vault en otro PC?';
   $('#lockGoogleBtn').classList.toggle('hidden', g.linked);
   $('#pw1').focus();
 }

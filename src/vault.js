@@ -2,7 +2,7 @@
 // El "sobre" (envelope) es JSON con todo lo necesario para descifrar menos la contraseña.
 const crypto = require('crypto');
 
-const FORMAT = 'passwordlol-vault';
+const FORMAT = 'smurf-vault';
 const SCRYPT = { N: 2 ** 17, r: 8, p: 1, keyLen: 32 };
 
 function deriveKey(password, salt, params = SCRYPT) {

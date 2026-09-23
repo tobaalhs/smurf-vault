@@ -1,4 +1,4 @@
-# PasswordLOL
+# Smurf Vault
 
 Bóveda cifrada para tus cuentas de League of Legends, con copia en Google Drive.
 

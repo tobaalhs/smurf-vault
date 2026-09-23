@@ -85,7 +85,7 @@ class Drive {
         res.end(
           `<html><body style="font-family:sans-serif;background:#0b1015;color:#e8e2d0;text-align:center;padding-top:80px">
            <h2>${ok ? '✅ Cuenta de Google vinculada' : '❌ No se pudo vincular'}</h2>
-           <p>Ya puedes cerrar esta pestaña y volver a PasswordLOL.</p></body></html>`
+           <p>Ya puedes cerrar esta pestaña y volver a Smurf Vault.</p></body></html>`
         );
         clearTimeout(timer);
         server.close();
@@ -232,7 +232,7 @@ class Drive {
       });
       return;
     }
-    const boundary = 'passwordlol' + crypto.randomBytes(8).toString('hex');
+    const boundary = 'smurf-vault' + crypto.randomBytes(8).toString('hex');
     const multipart =
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
       JSON.stringify({ name: VAULT_NAME, parents: ['appDataFolder'] }) +

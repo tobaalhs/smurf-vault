@@ -5,8 +5,8 @@ Todo es gratis y solo tu cuenta va a usarlo.
 
 ## 1. Crear el proyecto
 1. Entra a https://console.cloud.google.com con tu cuenta de Google.
-2. Arriba a la izquierda, en el selector de proyectos → **Proyecto nuevo** → nombre `PasswordLOL` → **Crear**.
-3. Asegúrate de que quede seleccionado (arriba debe decir `PasswordLOL`).
+2. Arriba a la izquierda, en el selector de proyectos → **Proyecto nuevo** → nombre `Smurf Vault` → **Crear**.
+3. Asegúrate de que quede seleccionado (arriba debe decir `Smurf Vault`).
 
 ## 2. Activar la API de Drive
 1. Menú ☰ → **APIs y servicios** → **Biblioteca**.
@@ -14,7 +14,7 @@ Todo es gratis y solo tu cuenta va a usarlo.
 
 ## 3. Pantalla de consentimiento (Google Auth Platform)
 1. Menú ☰ → **APIs y servicios** → **Pantalla de consentimiento de OAuth** (o "Google Auth Platform") → **Comenzar**.
-2. Nombre de la app: `PasswordLOL`. Correo de asistencia: tu Gmail.
+2. Nombre de la app: `Smurf Vault`. Correo de asistencia: tu Gmail.
 3. Público: **Externo**.
 4. Correo de contacto: tu Gmail → acepta la política → **Crear**.
 5. En **Acceso a los datos** → **Agregar o quitar permisos** → busca y marca:
@@ -28,7 +28,7 @@ Todo es gratis y solo tu cuenta va a usarlo.
 
 ## 4. Crear las credenciales
 1. En **Clientes** → **Crear cliente**.
-2. Tipo de aplicación: **App de escritorio**. Nombre: `PasswordLOL desktop` → **Crear**.
+2. Tipo de aplicación: **App de escritorio**. Nombre: `Smurf Vault desktop` → **Crear**.
 3. Aparece un cuadro con el ID. Haz clic en **Descargar JSON**.
 4. Renombra el archivo a **`credentials.json`** y déjalo en la carpeta del proyecto (junto a `package.json`).
    Está en el `.gitignore`, así que no se sube a git.
@@ -37,14 +37,14 @@ Todo es gratis y solo tu cuenta va a usarlo.
 1. `npm start` → desbloquea la bóveda → ⚙ **Ajustes** → **Vincular cuenta de Google**.
 2. Se abre tu navegador. Elige tu cuenta.
 3. Google va a decir **"Google no verificó esta app"**. Es normal porque la app es tuya:
-   **Configuración avanzada** → **Ir a PasswordLOL (no seguro)** → **Continuar**.
+   **Configuración avanzada** → **Ir a Smurf Vault (no seguro)** → **Continuar**.
 4. Aparece "✅ Cuenta de Google vinculada". Vuelve a la app. Arriba debe decir **Drive: sincronizado ✓**.
 
 ## ¿Qué se guarda y dónde?
 - Un solo archivo `vault.dat` **cifrado** (AES-256 con tu contraseña maestra) en la carpeta
   oculta *appDataFolder* de tu Drive. No lo vas a ver en drive.google.com y la app no puede
   ver el resto de tus archivos.
-- Una copia local en `%APPDATA%\passwordlol\vault.dat` (y la versión anterior en `vault.prev.dat`).
+- Una copia local en `%APPDATA%\Smurf Vault\vault.dat` (y la versión anterior en `vault.prev.dat`).
 - Cada vez que guardas algo, se sube a Drive. Al desbloquear, la app usa la versión más nueva
   entre la local y la de Drive.
 
