@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -100,6 +100,13 @@ function registerIpc() {
     google: drive.status(),
     credentialsPath: credentialsPath(),
   }));
+
+  // Solo abrimos en el navegador links conocidos, nunca URLs arbitrarias.
+  const EXTERNAL = ['https://developer.riotgames.com/', 'https://github.com/tobaalhs/smurf-vault'];
+  handle('app:openExternal', (url) => {
+    if (!EXTERNAL.some((u) => url.startsWith(u))) throw new Error('Link no permitido');
+    return shell.openExternal(url);
+  });
 
   handle('vault:remoteExists', async () => {
     if (!drive.status().linked) return false;
@@ -278,6 +285,7 @@ function createWindow() {
     minHeight: 560,
     backgroundColor: '#0a0e13',
     title: 'Smurf Vault',
+    icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
