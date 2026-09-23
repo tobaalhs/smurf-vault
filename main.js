@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, Menu, shell, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, Menu, shell, Notification, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -256,6 +256,27 @@ function registerIpc() {
   });
 
   handle('google:unlink', () => drive.unlink());
+
+  // El instalador público no trae credentials.json: cada uno carga el suyo (o el que le pasen).
+  handle('google:importCredentials', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Elige el credentials.json de Google',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (canceled || !filePaths[0]) return drive.status();
+    let raw;
+    try {
+      raw = JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
+    } catch {
+      throw new Error('Ese archivo no es un JSON válido');
+    }
+    if (!(raw.installed || raw).client_id) throw new Error('Ese JSON no parece un credentials.json de "App de escritorio"');
+    const dest = path.join(userData, 'credentials.json');
+    fs.copyFileSync(filePaths[0], dest);
+    drive.credentialsPath = dest;
+    return drive.status();
+  });
 
   handle('google:syncNow', () => {
     requireSession();

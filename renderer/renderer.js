@@ -576,12 +576,12 @@ function renderGoogle() {
   $('#googleBadge').textContent = g.linked ? 'Conectado' : 'No conectado';
   $('#googleBadge').className = `badge ${g.linked ? 'ok' : ''}`;
   $('#googleStatus').innerHTML = !g.hasCredentials
-    ? `Falta <code>credentials.json</code>. Sigue los pasos de GOOGLE_SETUP.md y déjalo en:<br><code>${esc(status.credentialsPath)}</code>`
+    ? 'Para sincronizar con Drive, primero carga el <code>credentials.json</code> de Google (lo creas siguiendo GOOGLE_SETUP.md, o te lo pasa quien te compartió la app).'
     : g.linked
       ? `Tu bóveda cifrada se guarda en una carpeta oculta del Drive de <b>${esc(g.email || 'tu cuenta de Google')}</b>. Cada cambio se sube solo.`
       : 'Tu bóveda solo está en este PC. Vincula Google para tener un respaldo y usarla en otros PCs.';
-  $('#googleLinkBtn').classList.toggle('hidden', g.linked);
-  $('#googleLinkBtn').disabled = !g.hasCredentials;
+  $('#googleCredsBtn').classList.toggle('hidden', g.hasCredentials);
+  $('#googleLinkBtn').classList.toggle('hidden', g.linked || !g.hasCredentials);
   $('#googleSyncBtn').classList.toggle('hidden', !g.linked);
   $('#googleUnlinkBtn').classList.toggle('hidden', !g.linked);
 }
@@ -595,6 +595,15 @@ $('#googleLinkBtn').addEventListener('click', (e) =>
     status = await window.api.status();
     renderGoogle();
     toast('Google Drive vinculado, subiendo bóveda…', 'ok');
+  })
+);
+
+$('#googleCredsBtn').addEventListener('click', (e) =>
+  run(e.currentTarget, async () => {
+    const g = await window.api.googleImportCredentials();
+    status = await window.api.status();
+    renderGoogle();
+    if (g.hasCredentials) toast('Credenciales cargadas. Ahora vincula tu cuenta de Google.', 'ok');
   })
 );
 

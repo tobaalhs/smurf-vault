@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('api', {
   copy: (id, field) => call('clipboard:copy', id, field),
   googleLink: () => call('google:link'),
   googleUnlink: () => call('google:unlink'),
+  googleImportCredentials: () => call('google:importCredentials'),
   syncNow: () => call('google:syncNow'),
   detect: (manual) => call('lcu:detect', manual),
   getTools: () => call('tools:get'),

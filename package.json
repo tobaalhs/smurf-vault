@@ -3,13 +3,50 @@
   "productName": "Smurf Vault",
   "version": "0.1.0",
   "description": "Bóveda cifrada para tus cuentas de Riot, sincronizada con Google Drive",
+  "author": "tobaalhs",
+  "license": "MIT",
+  "homepage": "https://github.com/tobaalhs/smurf-vault",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/vault.test.js && node test/autoaccept.test.js"
+    "test": "node test/vault.test.js && node test/autoaccept.test.js",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.tobaalhs.smurfvault",
+    "productName": "Smurf Vault",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "src/**",
+      "renderer/**",
+      "build/icon.png"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Smurf-Vault-Setup-${version}.${ext}",
+      "shortcutName": "Smurf Vault"
+    },
+    "portable": {
+      "artifactName": "Smurf-Vault-Portable-${version}.${ext}"
+    }
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
   }
 }
