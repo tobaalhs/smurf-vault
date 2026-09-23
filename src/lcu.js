@@ -131,12 +131,17 @@ async function currentAccount({ force = false } = {}) {
   const summoner = await get('/lol-summoner/v1/current-summoner', { force });
   if (!summoner?.puuid) return null;
 
-  const [ranked, region, history] = await Promise.all([
+  const [ranked, region, history, tftHistory] = await Promise.all([
     get('/lol-ranked/v1/current-ranked-stats'),
     get('/riotclient/region-locale'),
     get('/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=1'),
+    get(`/lol-match-history/v1/products/tft/${summoner.puuid}/matches?begin=0&count=1`),
   ]);
+  // Última partida entre LoL y TFT.
   const last = history?.games?.games?.[0];
+  const lolMs = last?.gameCreation ? last.gameCreation + (last.gameDuration || 0) * 1000 : 0;
+  const tftMs = Number(tftHistory?.games?.[0]?.json?.game_datetime) || 0;
+  const lastMs = Math.max(lolMs, tftMs);
 
   return {
     puuid: summoner.puuid,
@@ -145,11 +150,12 @@ async function currentAccount({ force = false } = {}) {
     level: summoner.summonerLevel,
     iconId: summoner.profileIconId,
     server: (region?.region || '').toUpperCase(),
-    // Fin de la última partida (inicio + duración). null si no hay historial.
-    lastPlayedAt: last?.gameCreation ? new Date(last.gameCreation + (last.gameDuration || 0) * 1000).toISOString() : null,
+    lastPlayedAt: lastMs ? new Date(lastMs).toISOString() : null,
     ranks: {
       solo: rankFrom(ranked?.queueMap?.RANKED_SOLO_5x5),
       flex: rankFrom(ranked?.queueMap?.RANKED_FLEX_SR),
+      tft: rankFrom(ranked?.queueMap?.RANKED_TFT),
+      doubleUp: rankFrom(ranked?.queueMap?.RANKED_TFT_DOUBLE_UP),
     },
   };
 }

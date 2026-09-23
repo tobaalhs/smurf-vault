@@ -120,9 +120,13 @@ function applySnapshot(acc, snap) {
     tagLine: snap.tagLine,
     level: snap.level,
     iconId: snap.iconId,
-    ranks: snap.ranks,
     lastSyncedAt: new Date().toISOString(),
   });
+  // null = sin rango; undefined = no se pudo consultar (se conserva el valor anterior).
+  acc.ranks = { ...acc.ranks };
+  for (const [queue, value] of Object.entries(snap.ranks || {})) {
+    if (value !== undefined) acc.ranks[queue] = value;
+  }
   if (snap.server) acc.server = snap.server;
   // Nos quedamos con la partida más reciente que conozcamos (cliente o API pueden venir sin dato).
   if (snap.lastPlayedAt && !(acc.lastPlayedAt > snap.lastPlayedAt)) acc.lastPlayedAt = snap.lastPlayedAt;

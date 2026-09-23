@@ -21,7 +21,9 @@ function serverFromClient(region) {
   return CLIENT_REGION[region] || region || '';
 }
 
-async function call(apiKey, host, path) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function call(apiKey, host, path, retries = 3) {
   const res = await fetch(`https://${host}.api.riotgames.com${path}`, {
     headers: { 'X-Riot-Token': apiKey },
   });
@@ -29,10 +31,19 @@ async function call(apiKey, host, path) {
   if (res.status === 401 || res.status === 403) {
     throw new Error('API key de Riot inválida o caducada (las de desarrollo duran 24 h)');
   }
-  if (res.status === 429) throw new Error('Demasiadas consultas a Riot, espera un poco');
+  if (res.status === 429) {
+    // Límite de consultas: Riot dice cuántos segundos esperar.
+    if (!retries) throw new Error('Demasiadas consultas a Riot, espera un poco');
+    await sleep((Number(res.headers.get('retry-after')) || 5) * 1000);
+    return call(apiKey, host, path, retries - 1);
+  }
   if (!res.ok) throw new Error(`Riot API ${res.status}`);
   return res.json();
 }
+
+// Para TFT: si la key no tiene acceso a TFT (p. ej. una Personal key solo de LoL), no rompemos
+// la actualización de LoL; devolvemos undefined para no borrar lo que ya teníamos.
+const optional = (p) => p.catch(() => undefined);
 
 function rank(entries, queue) {
   const e = entries?.find((x) => x.queueType === queue);
@@ -62,13 +73,23 @@ async function lookup(apiKey, account) {
   if (!acc) throw new Error('Riot no encontró la cuenta');
 
   const matchRegion = srv.matchRegion || srv.region;
-  const [summoner, entries, matchIds] = await Promise.all([
+  const [summoner, entries, matchIds, tftEntries, tftIds] = await Promise.all([
     call(apiKey, srv.platform, `/lol/summoner/v4/summoners/by-puuid/${acc.puuid}`),
     call(apiKey, srv.platform, `/lol/league/v4/entries/by-puuid/${acc.puuid}`),
     call(apiKey, matchRegion, `/lol/match/v5/matches/by-puuid/${acc.puuid}/ids?start=0&count=1`),
+    optional(call(apiKey, srv.platform, `/tft/league/v1/by-puuid/${acc.puuid}`)),
+    optional(call(apiKey, matchRegion, `/tft/match/v1/matches/by-puuid/${acc.puuid}/ids?start=0&count=1`)),
   ]);
-  const lastMatch = matchIds?.[0] ? await call(apiKey, matchRegion, `/lol/match/v5/matches/${matchIds[0]}`) : null;
-  const endMs = lastMatch?.info?.gameEndTimestamp || lastMatch?.info?.gameCreation;
+  const [lastMatch, lastTft] = await Promise.all([
+    matchIds?.[0] ? call(apiKey, matchRegion, `/lol/match/v5/matches/${matchIds[0]}`) : null,
+    tftIds?.[0] ? optional(call(apiKey, matchRegion, `/tft/match/v1/matches/${tftIds[0]}`)) : null,
+  ]);
+  // Última partida entre LoL y TFT.
+  const endMs = Math.max(
+    lastMatch?.info?.gameEndTimestamp || lastMatch?.info?.gameCreation || 0,
+    lastTft?.info?.game_datetime || 0
+  );
+  const tftRank = (queue) => (tftEntries === undefined ? undefined : rank(tftEntries, queue));
 
   return {
     puuid: acc.puuid,
@@ -77,7 +98,12 @@ async function lookup(apiKey, account) {
     level: summoner?.summonerLevel ?? account.level,
     iconId: summoner?.profileIconId ?? account.iconId,
     lastPlayedAt: endMs ? new Date(endMs).toISOString() : null,
-    ranks: { solo: rank(entries, 'RANKED_SOLO_5x5'), flex: rank(entries, 'RANKED_FLEX_SR') },
+    ranks: {
+      solo: rank(entries, 'RANKED_SOLO_5x5'),
+      flex: rank(entries, 'RANKED_FLEX_SR'),
+      tft: tftRank('RANKED_TFT'),
+      doubleUp: tftRank('RANKED_TFT_DOUBLE_UP'),
+    },
   };
 }
 

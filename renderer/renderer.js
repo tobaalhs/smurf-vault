@@ -50,6 +50,10 @@ function rankScore(r) {
   return TIERS.indexOf(r.tier) * 10000 + (DIVS[r.division] ?? 0) * 1000 + (r.lp || 0);
 }
 
+function bestRank(a) {
+  return Math.max(rankScore(a.ranks?.solo), rankScore(a.ranks?.tft));
+}
+
 function ago(iso) {
   if (!iso) return 'nunca';
   const m = Math.round((Date.now() - new Date(iso)) / 60000);
@@ -204,7 +208,8 @@ function sortedAccounts() {
     (a) => !q || [a.label, a.username, a.gameName, a.tagLine, a.notes, a.server].some((v) => (v || '').toLowerCase().includes(q))
   );
   const cmp = {
-    rank: (a, b) => rankScore(b.ranks?.solo) - rankScore(a.ranks?.solo) || (b.level || 0) - (a.level || 0),
+    // Mejor rango entre LoL Solo/Dúo y TFT.
+    rank: (a, b) => bestRank(b) - bestRank(a) || (b.level || 0) - (a.level || 0),
     level: (a, b) => (b.level || 0) - (a.level || 0),
     name: (a, b) => (riotId(a) || a.username).localeCompare(riotId(b) || b.username),
     // Las cuentas sin partidas registradas quedan al final.
@@ -254,6 +259,8 @@ function card(a) {
     <div class="ranks">
       ${rankRow('Solo/Dúo', a.ranks?.solo)}
       ${rankRow('Flex', a.ranks?.flex)}
+      ${a.ranks?.tft ? rankRow('TFT', a.ranks.tft) : ''}
+      ${a.ranks?.doubleUp ? rankRow('Double Up', a.ranks.doubleUp) : ''}
     </div>
     <div class="creds">
       <button class="cred" data-act="copy-user">
