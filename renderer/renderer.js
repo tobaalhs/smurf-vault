@@ -181,9 +181,22 @@ async function showApp() {
   if (!status.google.linked) updateSync({ state: 'off' });
   tools = await window.api.getTools();
   renderTools();
+  if (status.updateReady) showUpdate(status.updateReady);
   render();
   startDetect();
 }
+
+function showUpdate(version) {
+  $('#updateText').textContent = `Actualizar a v${version}`;
+  $('#updateChip').classList.remove('hidden');
+}
+
+window.api.onUpdate((u) => {
+  showUpdate(u.version);
+  toast(`Hay una versión nueva (v${u.version}) lista para instalar`, 'ok');
+});
+
+$('#updateChip').addEventListener('click', () => window.api.installUpdate());
 
 function sortedAccounts() {
   const q = $('#search').value.trim().toLowerCase();
@@ -585,6 +598,7 @@ async function openSettings() {
   status = await window.api.status();
   renderGoogle();
   $('#riotKey').value = data.settings.riotApiKey || '';
+  $('#appVersion').textContent = `Smurf Vault v${status.version}`;
   $('#settingsDialog').showModal();
 }
 

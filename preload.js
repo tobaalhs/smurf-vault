@@ -9,6 +9,8 @@ async function call(channel, ...args) {
 contextBridge.exposeInMainWorld('api', {
   status: () => call('app:status'),
   openExternal: (url) => call('app:openExternal', url),
+  installUpdate: () => call('app:installUpdate'),
+  onUpdate: (cb) => ipcRenderer.on('update', (_e, u) => cb(u)),
   remoteExists: () => call('vault:remoteExists'),
   create: (pw) => call('vault:create', pw),
   unlock: (pw) => call('vault:unlock', pw),

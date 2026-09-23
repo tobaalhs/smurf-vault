@@ -412,3 +412,12 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
 .card-foot .played .ic { width: 12px; height: 12px; color: var(--cyan); }
 .card-foot .played.none { color: var(--muted); font-weight: 400; }
 .card-foot .played.none .ic { color: var(--muted); }
+
+.update-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+  background: rgba(214,179,106,.12); border: 1px solid rgba(214,179,106,.4); border-radius: 99px;
+  color: var(--gold-hi); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.update-chip:hover { background: rgba(214,179,106,.2); }
+.update-chip .ic { width: 13px; height: 13px; }
+.version { align-self: center; font-size: 11.5px; }

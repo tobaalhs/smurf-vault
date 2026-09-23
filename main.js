@@ -7,6 +7,7 @@ const { Drive } = require('./src/drive');
 const lcu = require('./src/lcu');
 const riot = require('./src/riot');
 const { AutoAccept } = require('./src/autoaccept');
+const { autoUpdater } = require('electron-updater');
 
 const userData = app.getPath('userData');
 const LOCAL_VAULT = path.join(userData, 'vault.dat');
@@ -18,6 +19,22 @@ let win;
 let drive;
 let autoAccept;
 let config = { autoAccept: false, autoAcceptDelay: 0 };
+let updateReady = null; // versión descargada, lista para instalar
+
+// Actualizaciones desde GitHub Releases. Solo en la versión instalada:
+// en desarrollo (npm start) y en la portable no aplica.
+function setupUpdates() {
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+  autoUpdater.autoInstallOnAppQuit = true; // si no reinicias, se instala al cerrar la app
+  autoUpdater.on('update-downloaded', (info) => {
+    updateReady = info.version;
+    win?.webContents.send('update', { version: info.version });
+  });
+  autoUpdater.on('error', () => {}); // sin internet o sin releases: se ignora
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  check();
+  setInterval(check, 6 * 60 * 60 * 1000);
+}
 let session = null; // { key, salt, data } mientras la bóveda está desbloqueada
 let uploadChain = Promise.resolve();
 
@@ -132,7 +149,14 @@ function registerIpc() {
     unlocked: !!session,
     google: drive.status(),
     credentialsPath: credentialsPath(),
+    version: app.getVersion(),
+    updateReady,
   }));
+
+  handle('app:installUpdate', () => {
+    if (updateReady) autoUpdater.quitAndInstall();
+    return true;
+  });
 
   // Solo abrimos en el navegador links conocidos, nunca URLs arbitrarias.
   const EXTERNAL = ['https://developer.riotgames.com/', 'https://github.com/tobaalhs/smurf-vault'];
@@ -373,6 +397,7 @@ app.whenReady().then(() => {
   autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
   registerIpc();
   createWindow();
+  setupUpdates();
 });
 
 app.on('window-all-closed', () => app.quit());

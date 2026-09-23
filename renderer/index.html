@@ -45,6 +45,9 @@
 
       <div class="spacer"></div>
 
+      <button id="updateChip" class="update-chip hidden" type="button" data-tip="Se descargó una versión nueva. Clic para reiniciar e instalarla (si no, se instala al cerrar la app).">
+        <i data-icon="arrowUp"></i><span id="updateText">Actualizar</span>
+      </button>
       <button id="autoChip" class="auto-chip hidden" type="button" data-tip="Autoaceptar partidas activado · clic para configurar">
         <i data-icon="zap"></i><span>Autoaceptar</span>
       </button>
@@ -278,6 +281,7 @@
       </section>
 
       <div class="actions">
+        <span id="appVersion" class="hint version"></span>
         <div class="spacer"></div>
         <button type="button" class="btn subtle" data-close>Cerrar</button>
         <button type="submit" class="btn primary">Guardar</button>

@@ -1,0 +1,50 @@
+# Al subir un tag vX.Y.Z, GitHub compila el instalador y publica la release.
+# Las credenciales de Google viven en el secreto GOOGLE_CREDENTIALS del repo, nunca en el código.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Revisar que el tag coincida con la versión
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            Write-Error "El tag ${{ github.ref_name }} no coincide con package.json (v$version)"
+            exit 1
+          }
+
+      - name: Escribir credentials.json desde el secreto
+        shell: pwsh
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          if (-not $env:GOOGLE_CREDENTIALS) {
+            Write-Error "Falta el secreto GOOGLE_CREDENTIALS (Settings > Secrets and variables > Actions)"
+            exit 1
+          }
+          [IO.File]::WriteAllText("credentials.json", $env:GOOGLE_CREDENTIALS)
+
+      - name: Compilar y publicar
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
