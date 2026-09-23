@@ -9,6 +9,8 @@ const { shell, safeStorage } = require('electron');
 const SCOPES = 'https://www.googleapis.com/auth/drive.appdata openid email';
 const VAULT_NAME = 'vault.dat';
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+const MISSING_SCOPE =
+  'Falta el permiso de Google Drive. Vuelve a vincular y marca la casilla "Ver, crear y borrar sus propios datos de configuración en Google Drive".';
 
 class Drive {
   constructor({ credentialsPath, tokenPath }) {
@@ -124,6 +126,13 @@ class Drive {
       client_secret: client.secret,
     });
     if (!tok.refresh_token) throw new Error('Google no entregó refresh_token');
+    // Google muestra los permisos como casillas: si no marcaron la de Drive, no sirve el token.
+    if (!(tok.scope || '').includes('drive.appdata')) {
+      await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(tok.refresh_token)}`, {
+        method: 'POST',
+      }).catch(() => {});
+      throw new Error(MISSING_SCOPE);
+    }
 
     let email = null;
     if (tok.id_token) {
@@ -195,7 +204,17 @@ class Drive {
     });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Drive ${res.status}: ${text.slice(0, 200)}`);
+      if (res.status === 403 && text.includes('insufficient authentication scopes')) {
+        // Vinculado sin el permiso de Drive: lo desvinculamos para que vuelvan a hacerlo bien.
+        this.#saveToken(null);
+        this.accessToken = null;
+        throw new Error(MISSING_SCOPE);
+      }
+      let message = text.slice(0, 200);
+      try {
+        message = JSON.parse(text).error.message;
+      } catch {}
+      throw new Error(`Drive ${res.status}: ${message}`);
     }
     return res;
   }

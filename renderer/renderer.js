@@ -538,8 +538,11 @@ function updateSyncPill(s) {
   p.textContent = text;
   p.className = `pill ${cls}`;
   p.title = s.message || (s.at ? `Última vez: ${new Date(s.at).toLocaleString()}` : '');
-  if (s.state === 'error') toast(`Google Drive: ${s.message}`, 'error');
+  // Un mismo error se avisa una sola vez, no en cada guardado.
+  if (s.state === 'error' && s.message !== lastSyncError) toast(`Google Drive: ${s.message}`, 'error');
+  lastSyncError = s.state === 'error' ? s.message : null;
 }
+let lastSyncError = null;
 
 window.api.onSync(updateSyncPill);
 

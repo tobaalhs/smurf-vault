@@ -38,7 +38,9 @@ Todo es gratis y solo tu cuenta va a usarlo.
 2. Se abre tu navegador. Elige tu cuenta.
 3. Google va a decir **"Google no verificó esta app"**. Es normal porque la app es tuya:
    **Configuración avanzada** → **Ir a Smurf Vault (no seguro)** → **Continuar**.
-4. Aparece "✅ Cuenta de Google vinculada". Vuelve a la app. Arriba debe decir **Drive: sincronizado ✓**.
+4. **Marca la casilla de Google Drive** ("Ver, crear y borrar sus propios datos de configuración
+   en Google Drive"). Google puede mostrarla desmarcada; sin ella la app no puede guardar nada.
+5. Aparece "✅ Cuenta de Google vinculada". Vuelve a la app. Arriba debe decir **Drive: sincronizado ✓**.
 
 ## ¿Qué se guarda y dónde?
 - Un solo archivo `vault.dat` **cifrado** (AES-256 con tu contraseña maestra) en la carpeta
