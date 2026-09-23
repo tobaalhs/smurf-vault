@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; img-src 'self' data: https://raw.communitydragon.org; style-src 'self'; script-src 'self'"
+  />
+  <title>PasswordLOL</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ Pantalla de bloqueo ============ -->
+  <section id="lockScreen" class="lock hidden">
+    <div class="lock-card">
+      <div class="logo">PL</div>
+      <h1>PasswordLOL</h1>
+      <p id="lockHint" class="muted"></p>
+      <form id="lockForm">
+        <input id="pw1" type="password" placeholder="Contraseña maestra" autocomplete="current-password" required />
+        <input id="pw2" type="password" placeholder="Repite la contraseña" autocomplete="new-password" class="hidden" />
+        <button id="lockSubmit" class="btn primary" type="submit">Desbloquear</button>
+      </form>
+      <p id="lockError" class="error"></p>
+      <div class="lock-google">
+        <span id="lockGoogleText" class="muted small"></span>
+        <button id="lockGoogleBtn" class="btn ghost small" type="button">Vincular Google Drive</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ App principal ============ -->
+  <section id="appScreen" class="hidden">
+    <header class="topbar">
+      <div class="brand"><div class="logo sm">PL</div><span>PasswordLOL</span></div>
+      <input id="search" type="search" placeholder="Buscar por nick, usuario, nota…" />
+      <select id="sort" title="Ordenar">
+        <option value="rank">Rango</option>
+        <option value="level">Nivel</option>
+        <option value="name">Nombre</option>
+        <option value="recent">Recientes</option>
+      </select>
+      <div class="spacer"></div>
+      <span id="syncPill" class="pill" title="Estado de Google Drive">Drive: —</span>
+      <button id="btnDetect" class="btn" title="Lee la cuenta abierta en el cliente de LoL">Detectar cliente</button>
+      <button id="btnRefresh" class="btn" title="Actualiza nick, nivel y rango con la API de Riot">Actualizar rangos</button>
+      <button id="btnImport" class="btn">Importar</button>
+      <button id="btnAdd" class="btn primary">+ Cuenta</button>
+      <button id="btnSettings" class="btn icon" title="Ajustes">⚙</button>
+      <button id="btnLock" class="btn icon" title="Bloquear">🔒</button>
+    </header>
+
+    <div id="detectBanner" class="banner hidden"></div>
+
+    <main>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty hidden">
+        <h2>Todavía no hay cuentas</h2>
+        <p class="muted">Agrega una con <b>+ Cuenta</b> o pega tu txt viejo en <b>Importar</b>.</p>
+      </div>
+    </main>
+  </section>
+
+  <!-- ============ Diálogo: cuenta ============ -->
+  <dialog id="accountDialog">
+    <form id="accountForm" method="dialog">
+      <h2 id="accountTitle">Nueva cuenta</h2>
+      <input type="hidden" name="id" />
+      <label>Etiqueta <input name="label" placeholder="ej: smurf mid, cuenta principal…" /></label>
+      <div class="row">
+        <label>Usuario <input name="username" required autocomplete="off" /></label>
+        <label>Contraseña
+          <div class="pwfield">
+            <input name="password" type="password" required autocomplete="off" />
+            <button type="button" class="btn ghost small" data-toggle-pw>👁</button>
+          </div>
+        </label>
+      </div>
+      <div class="row">
+        <label>Nombre de invocador <input name="gameName" placeholder="Nombre" /></label>
+        <label class="tag">Tag <input name="tagLine" placeholder="LAS" /></label>
+        <label class="tag">Servidor <select name="server"></select></label>
+      </div>
+      <label>Notas <textarea name="notes" rows="3" placeholder="correo asociado, fecha de creación, ban…"></textarea></label>
+      <div class="actions">
+        <button type="button" class="btn danger hidden" id="accountDelete">Eliminar</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Diálogo: importar ============ -->
+  <dialog id="importDialog">
+    <form id="importForm" method="dialog">
+      <h2>Importar desde txt</h2>
+      <p class="muted small">Una cuenta por línea: <code>usuario:contraseña</code> (también sirve <code>;</code>, tab, <code> / </code> o espacio).</p>
+      <textarea id="importText" rows="10" placeholder="micuenta1:clave123&#10;smurf_2 otraClave"></textarea>
+      <div class="row">
+        <label class="tag">Servidor <select id="importServer"></select></label>
+        <p id="importPreview" class="muted small grow"></p>
+      </div>
+      <div class="actions">
+        <div class="spacer"></div>
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Importar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Diálogo: vincular cuenta detectada ============ -->
+  <dialog id="linkDialog">
+    <form id="linkForm" method="dialog">
+      <h2>¿A qué cuenta corresponde?</h2>
+      <p id="linkInfo" class="muted"></p>
+      <div id="linkList" class="linklist"></div>
+      <div class="actions">
+        <button type="button" class="btn" id="linkNew">Es una cuenta nueva</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn" data-close>Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Diálogo: ajustes ============ -->
+  <dialog id="settingsDialog">
+    <form id="settingsForm" method="dialog">
+      <h2>Ajustes</h2>
+
+      <h3>Google Drive</h3>
+      <p id="googleStatus" class="muted"></p>
+      <div class="row">
+        <button type="button" id="googleLinkBtn" class="btn primary">Vincular cuenta de Google</button>
+        <button type="button" id="googleSyncBtn" class="btn">Subir ahora</button>
+        <button type="button" id="googleUnlinkBtn" class="btn danger">Desvincular</button>
+      </div>
+
+      <h3>API de Riot</h3>
+      <p class="muted small">Sácala en developer.riotgames.com. La <i>Development key</i> dura 24 h; pide una <i>Personal API key</i> para que no caduque.</p>
+      <input id="riotKey" type="password" placeholder="RGAPI-xxxxxxxx-xxxx-…" autocomplete="off" />
+
+      <div class="actions">
+        <div class="spacer"></div>
+        <button type="button" class="btn" data-close>Cerrar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Diálogo: confirmar ============ -->
+  <dialog id="confirmDialog">
+    <form method="dialog">
+      <p id="confirmText"></p>
+      <div class="actions">
+        <div class="spacer"></div>
+        <button value="no" class="btn">Cancelar</button>
+        <button value="yes" class="btn danger">Sí, eliminar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toasts"></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
