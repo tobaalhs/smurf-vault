@@ -1,11 +1,11 @@
 // API oficial de Riot (necesita una API key de developer.riotgames.com).
-// Servidor que se ve en el cliente -> "platform" de la API + "región" para account-v1.
+// Servidor que se ve en el cliente -> "platform" de la API + "región" para account-v1 y match-v5.
 const SERVERS = {
   LAS: { platform: 'la2', region: 'americas' },
   LAN: { platform: 'la1', region: 'americas' },
   NA: { platform: 'na1', region: 'americas' },
   BR: { platform: 'br1', region: 'americas' },
-  OCE: { platform: 'oc1', region: 'americas' },
+  OCE: { platform: 'oc1', region: 'americas', matchRegion: 'sea' },
   EUW: { platform: 'euw1', region: 'europe' },
   EUNE: { platform: 'eun1', region: 'europe' },
   TR: { platform: 'tr1', region: 'europe' },
@@ -61,10 +61,14 @@ async function lookup(apiKey, account) {
   }
   if (!acc) throw new Error('Riot no encontró la cuenta');
 
-  const [summoner, entries] = await Promise.all([
+  const matchRegion = srv.matchRegion || srv.region;
+  const [summoner, entries, matchIds] = await Promise.all([
     call(apiKey, srv.platform, `/lol/summoner/v4/summoners/by-puuid/${acc.puuid}`),
     call(apiKey, srv.platform, `/lol/league/v4/entries/by-puuid/${acc.puuid}`),
+    call(apiKey, matchRegion, `/lol/match/v5/matches/by-puuid/${acc.puuid}/ids?start=0&count=1`),
   ]);
+  const lastMatch = matchIds?.[0] ? await call(apiKey, matchRegion, `/lol/match/v5/matches/${matchIds[0]}`) : null;
+  const endMs = lastMatch?.info?.gameEndTimestamp || lastMatch?.info?.gameCreation;
 
   return {
     puuid: acc.puuid,
@@ -72,6 +76,7 @@ async function lookup(apiKey, account) {
     tagLine: acc.tagLine,
     level: summoner?.summonerLevel ?? account.level,
     iconId: summoner?.profileIconId ?? account.iconId,
+    lastPlayedAt: endMs ? new Date(endMs).toISOString() : null,
     ranks: { solo: rank(entries, 'RANKED_SOLO_5x5'), flex: rank(entries, 'RANKED_FLEX_SR') },
   };
 }

@@ -57,7 +57,9 @@ function ago(iso) {
   if (m < 60) return `hace ${m} min`;
   const h = Math.round(m / 60);
   if (h < 48) return `hace ${h} h`;
-  return `hace ${Math.round(h / 24)} días`;
+  const d = Math.round(h / 24);
+  if (d < 60) return `hace ${d} días`;
+  return `hace ${Math.round(d / 30)} meses`;
 }
 
 function riotId(a) {
@@ -192,7 +194,8 @@ function sortedAccounts() {
     rank: (a, b) => rankScore(b.ranks?.solo) - rankScore(a.ranks?.solo) || (b.level || 0) - (a.level || 0),
     level: (a, b) => (b.level || 0) - (a.level || 0),
     name: (a, b) => (riotId(a) || a.username).localeCompare(riotId(b) || b.username),
-    recent: (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''),
+    // Las cuentas sin partidas registradas quedan al final.
+    played: (a, b) => (b.lastPlayedAt || '').localeCompare(a.lastPlayedAt || ''),
   }[$('#sort').value];
   return list.sort(cmp);
 }
@@ -248,7 +251,11 @@ function card(a) {
       </button>
     </div>
     ${a.notes ? `<p class="notes">${esc(a.notes)}</p>` : ''}
-    <div class="card-foot">Actualizada ${ago(a.lastSyncedAt)}</div>
+    <div class="card-foot">
+      <span class="played${a.lastPlayedAt ? '' : ' none'}" data-tip="${a.lastPlayedAt ? new Date(a.lastPlayedAt).toLocaleString() : 'Se obtiene al detectar la cuenta en el cliente o con Actualizar rangos'}">${icon('gamepad')}${a.lastPlayedAt ? 'Jugó ' + ago(a.lastPlayedAt) : 'Sin partidas registradas'}</span>
+      <span class="spacer"></span>
+      <span>Datos ${a.lastSyncedAt ? ago(a.lastSyncedAt) : 'sin actualizar'}</span>
+    </div>
   </article>`;
 }
 
@@ -276,7 +283,17 @@ $('#grid').addEventListener(
 );
 
 $('#search').addEventListener('input', render);
-$('#sort').addEventListener('change', render);
+// El orden elegido se recuerda en este PC.
+try {
+  const saved = localStorage.getItem('sort');
+  if (saved && [...$('#sort').options].some((o) => o.value === saved)) $('#sort').value = saved;
+} catch {}
+$('#sort').addEventListener('change', () => {
+  try {
+    localStorage.setItem('sort', $('#sort').value);
+  } catch {}
+  render();
+});
 
 function flashCopied(btn) {
   btn.classList.add('copied');

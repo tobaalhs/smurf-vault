@@ -21,8 +21,9 @@ let config = { autoAccept: false, autoAcceptDelay: 0 };
 let session = null; // { key, salt, data } mientras la bóveda está desbloqueada
 let uploadChain = Promise.resolve();
 
+// Primero las credenciales que cargó el usuario; si no hay, las que vienen dentro del instalador.
 function credentialsPath() {
-  const candidates = [path.join(app.getAppPath(), 'credentials.json'), path.join(userData, 'credentials.json')];
+  const candidates = [path.join(userData, 'credentials.json'), path.join(app.getAppPath(), 'credentials.json')];
   return candidates.find((p) => fs.existsSync(p)) || candidates[0];
 }
 
@@ -106,6 +107,8 @@ function applySnapshot(acc, snap) {
     lastSyncedAt: new Date().toISOString(),
   });
   if (snap.server) acc.server = snap.server;
+  // Nos quedamos con la partida más reciente que conozcamos (cliente o API pueden venir sin dato).
+  if (snap.lastPlayedAt && !(acc.lastPlayedAt > snap.lastPlayedAt)) acc.lastPlayedAt = snap.lastPlayedAt;
 }
 
 function requireSession() {

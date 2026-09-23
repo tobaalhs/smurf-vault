@@ -131,10 +131,12 @@ async function currentAccount({ force = false } = {}) {
   const summoner = await get('/lol-summoner/v1/current-summoner', { force });
   if (!summoner?.puuid) return null;
 
-  const [ranked, region] = await Promise.all([
+  const [ranked, region, history] = await Promise.all([
     get('/lol-ranked/v1/current-ranked-stats'),
     get('/riotclient/region-locale'),
+    get('/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=1'),
   ]);
+  const last = history?.games?.games?.[0];
 
   return {
     puuid: summoner.puuid,
@@ -143,6 +145,8 @@ async function currentAccount({ force = false } = {}) {
     level: summoner.summonerLevel,
     iconId: summoner.profileIconId,
     server: (region?.region || '').toUpperCase(),
+    // Fin de la última partida (inicio + duración). null si no hay historial.
+    lastPlayedAt: last?.gameCreation ? new Date(last.gameCreation + (last.gameDuration || 0) * 1000).toISOString() : null,
     ranks: {
       solo: rankFrom(ranked?.queueMap?.RANKED_SOLO_5x5),
       flex: rankFrom(ranked?.queueMap?.RANKED_FLEX_SR),

@@ -407,3 +407,8 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
 .client-status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .client-status.on { color: var(--text-2); }
 .client-status.on .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(60,207,142,.15); }
+
+.card-foot .played { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); font-weight: 500; }
+.card-foot .played .ic { width: 12px; height: 12px; color: var(--cyan); }
+.card-foot .played.none { color: var(--muted); font-weight: 400; }
+.card-foot .played.none .ic { color: var(--muted); }
