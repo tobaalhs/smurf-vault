@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, Menu, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -6,13 +6,18 @@ const { createKey, encryptWithKey, decryptEnvelope, emptyVault } = require('./sr
 const { Drive } = require('./src/drive');
 const lcu = require('./src/lcu');
 const riot = require('./src/riot');
+const { AutoAccept } = require('./src/autoaccept');
 
 const userData = app.getPath('userData');
 const LOCAL_VAULT = path.join(userData, 'vault.dat');
 const LOCAL_BACKUP = path.join(userData, 'vault.prev.dat');
+// Preferencias que no son secretas y deben funcionar con la bóveda bloqueada.
+const CONFIG_PATH = path.join(userData, 'config.json');
 
 let win;
 let drive;
+let autoAccept;
+let config = { autoAccept: false, autoAcceptDelay: 0 };
 let session = null; // { key, salt, data } mientras la bóveda está desbloqueada
 let uploadChain = Promise.resolve();
 
@@ -34,6 +39,31 @@ function writeLocal(envelope) {
   const tmp = LOCAL_VAULT + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(envelope));
   fs.renameSync(tmp, LOCAL_VAULT);
+}
+
+function loadConfig() {
+  try {
+    config = { ...config, ...JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) };
+  } catch {}
+}
+
+function saveConfig(patch) {
+  config = { ...config, ...patch };
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
+  return toolsStatus();
+}
+
+function toolsStatus() {
+  return { ...config, clientConnected: autoAccept.connected };
+}
+
+function onMatchAccepted() {
+  win?.webContents.send('tools', { event: 'accepted' });
+  // Si estás en otra ventana, avisamos con una notificación de Windows.
+  if (!win?.isFocused() && Notification.isSupported()) {
+    new Notification({ title: 'Smurf Vault', body: 'Partida aceptada ✓', silent: true }).show();
+  }
 }
 
 function emitSync(state, message = '') {
@@ -233,8 +263,16 @@ function registerIpc() {
     return true;
   });
 
-  handle('lcu:detect', async () => {
-    const snap = await lcu.currentAccount();
+  handle('tools:get', () => toolsStatus());
+  handle('tools:set', (patch) => {
+    const allowed = {};
+    if ('autoAccept' in patch) allowed.autoAccept = !!patch.autoAccept;
+    if ('autoAcceptDelay' in patch) allowed.autoAcceptDelay = Number(patch.autoAcceptDelay) || 0;
+    return saveConfig(allowed);
+  });
+
+  handle('lcu:detect', async (manual) => {
+    const snap = await lcu.currentAccount({ force: !!manual });
     if (!snap) return null;
     snap.server = riot.serverFromClient(snap.server);
     let matchedId = null;
@@ -302,6 +340,13 @@ function createWindow() {
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   drive = new Drive({ credentialsPath: credentialsPath(), tokenPath: path.join(userData, 'google-token.bin') });
+  app.setAppUserModelId('Smurf Vault'); // necesario para las notificaciones en Windows
+  loadConfig();
+  autoAccept = new AutoAccept({
+    onAccepted: onMatchAccepted,
+    onStatus: (s) => win?.webContents.send('tools', { event: 'status', ...s }),
+  });
+  autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
   registerIpc();
   createWindow();
 });

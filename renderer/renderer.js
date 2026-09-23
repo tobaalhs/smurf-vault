@@ -12,6 +12,7 @@ let detectTimer = null;
 let lastSyncError = null;
 let pendingSnapshot = null; // cuenta detectada que se está creando como nueva
 let afterRiotKey = null; // qué actualizar después de guardar la API key
+let tools = null; // { autoAccept, autoAcceptDelay, clientConnected }
 const seenPuuids = new Set(); // cuentas del cliente ya avisadas en esta sesión
 
 hydrateIcons();
@@ -176,6 +177,8 @@ async function showApp() {
   $('#lockScreen').classList.add('hidden');
   $('#appScreen').classList.remove('hidden');
   if (!status.google.linked) updateSync({ state: 'off' });
+  tools = await window.api.getTools();
+  renderTools();
   render();
   startDetect();
 }
@@ -399,7 +402,7 @@ $('#menu').addEventListener('click', (e) => {
   const item = e.target.closest('[data-menu]');
   if (!item) return;
   closeMenu();
-  ({ import: openImport, settings: openSettings, lock: lockVault })[item.dataset.menu]();
+  ({ tools: openTools, import: openImport, settings: openSettings, lock: lockVault })[item.dataset.menu]();
 });
 
 // ---------- importar ----------
@@ -443,7 +446,7 @@ $('#importForm').addEventListener('submit', async (e) => {
 // ---------- detección del cliente ----------
 
 async function detect({ manual = false } = {}) {
-  const res = await window.api.detect();
+  const res = await window.api.detect(manual);
   if (!res) {
     if (manual) toast('No encontré el cliente de LoL abierto con una sesión iniciada', 'error');
     return;
@@ -634,6 +637,58 @@ function updateSync(s) {
 }
 
 window.api.onSync(updateSync);
+
+// ---------- herramientas (autoaceptar) ----------
+
+function renderTools() {
+  if (!tools) return;
+  $('#autoChip').classList.toggle('hidden', !tools.autoAccept);
+  $('#autoAcceptToggle').checked = tools.autoAccept;
+  $('#autoAcceptBody').classList.toggle('off', !tools.autoAccept);
+  document.querySelectorAll('#autoAcceptDelay button').forEach((b) =>
+    b.classList.toggle('active', Number(b.dataset.delay) === tools.autoAcceptDelay)
+  );
+  const st = $('#clientStatus');
+  st.classList.toggle('on', tools.autoAccept && tools.clientConnected === true);
+  st.lastElementChild.textContent = !tools.autoAccept
+    ? 'Apagado'
+    : tools.clientConnected === true
+      ? 'Cliente de LoL conectado · esperando partida'
+      : tools.clientConnected === false
+        ? 'Cliente de LoL no detectado · ábrelo y se conecta solo'
+        : 'Buscando el cliente de LoL…';
+}
+
+async function openTools() {
+  tools = await window.api.getTools();
+  renderTools();
+  $('#toolsDialog').showModal();
+}
+
+async function setTools(patch) {
+  await run(null, async () => {
+    tools = await window.api.setTools(patch);
+    renderTools();
+  });
+}
+
+$('#autoChip').addEventListener('click', openTools);
+$('#autoAcceptToggle').addEventListener('change', (e) => {
+  setTools({ autoAccept: e.target.checked });
+  toast(e.target.checked ? 'Autoaceptar activado' : 'Autoaceptar desactivado', e.target.checked ? 'ok' : 'info');
+});
+$('#autoAcceptDelay').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-delay]');
+  if (b) setTools({ autoAcceptDelay: Number(b.dataset.delay) });
+});
+
+window.api.onTools((s) => {
+  if (s.event === 'accepted') toast('Partida aceptada ✓', 'ok');
+  if (s.event === 'status' && tools) {
+    tools.clientConnected = s.connected;
+    renderTools();
+  }
+});
 
 // ---------- atajos de teclado ----------
 

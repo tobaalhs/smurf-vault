@@ -45,6 +45,9 @@
 
       <div class="spacer"></div>
 
+      <button id="autoChip" class="auto-chip hidden" type="button" data-tip="Autoaceptar partidas activado · clic para configurar">
+        <i data-icon="zap"></i><span>Autoaceptar</span>
+      </button>
       <button id="syncChip" class="sync-chip off" type="button">
         <span class="dot"></span><span id="syncText">Solo local</span>
       </button>
@@ -62,6 +65,10 @@
       <div class="menu-wrap">
         <button id="btnMenu" class="btn subtle icon-only" aria-label="Más opciones"><i data-icon="more"></i></button>
         <div id="menu" class="menu hidden" role="menu">
+          <button class="menu-item" data-menu="tools">
+            <i data-icon="wrench"></i>
+            <span><b>Herramientas</b><small>Autoaceptar partidas y extras del cliente</small></span>
+          </button>
           <button class="menu-item" data-menu="import">
             <i data-icon="upload"></i>
             <span><b>Importar desde txt</b><small>Pega tus cuentas como usuario:contraseña</small></span>
@@ -203,6 +210,45 @@
         <button type="button" class="btn subtle" data-close>Ahora no</button>
         <button type="submit" class="btn primary">Guardar y actualizar</button>
       </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Diálogo: herramientas ============ -->
+  <dialog id="toolsDialog">
+    <form method="dialog">
+      <header class="dlg-head">
+        <h2>Herramientas</h2>
+        <button type="button" class="btn ghost icon-only" data-close aria-label="Cerrar"><i data-icon="x"></i></button>
+      </header>
+
+      <section class="tool">
+        <div class="tool-head">
+          <div class="tool-icon"><i data-icon="zap"></i></div>
+          <div class="tool-text">
+            <h3>Autoaceptar partidas</h3>
+            <p class="hint">Acepta la partida por ti cuando sale en el cliente de LoL. Sigue funcionando con la bóveda bloqueada, mientras Smurf Vault esté abierto.</p>
+          </div>
+          <label class="switch" aria-label="Autoaceptar partidas">
+            <input type="checkbox" id="autoAcceptToggle" />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </div>
+        <div class="tool-body" id="autoAcceptBody">
+          <div class="tool-row">
+            <span class="tool-label">Esperar antes de aceptar</span>
+            <div class="segmented" id="autoAcceptDelay">
+              <button type="button" data-delay="0">Al instante</button>
+              <button type="button" data-delay="2">2 s</button>
+              <button type="button" data-delay="4">4 s</button>
+              <button type="button" data-delay="6">6 s</button>
+            </div>
+          </div>
+          <p class="hint small-note">Con espera alcanzas a rechazar la partida tú si no quieres jugarla.</p>
+          <div class="client-status" id="clientStatus"><span class="dot"></span><span></span></div>
+        </div>
+      </section>
+
+      <p class="hint center-note">Solo hace lo mismo que apretar "Aceptar": no toca nada dentro de la partida.</p>
     </form>
   </dialog>
 
