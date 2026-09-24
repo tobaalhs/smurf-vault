@@ -366,6 +366,18 @@
       </section>
 
       <section class="setting">
+        <div class="setting-head"><i data-icon="lockKey"></i><h3>Contraseña maestra</h3></div>
+        <p class="hint">Para cambiarla necesitas la actual. La nueva tampoco se puede recuperar: si la olvidas, pierdes la bóveda.</p>
+        <div class="pw-change">
+          <input type="password" id="pwCurrent" placeholder="Contraseña actual" autocomplete="current-password" />
+          <input type="password" id="pwNew" placeholder="Nueva (mínimo 8 caracteres)" autocomplete="new-password" />
+          <input type="password" id="pwNew2" placeholder="Repite la nueva" autocomplete="new-password" />
+          <button type="button" id="pwChangeBtn" class="btn primary">Cambiar contraseña</button>
+        </div>
+        <p class="error" id="pwChangeError"></p>
+      </section>
+
+      <section class="setting">
         <div class="setting-head">
           <i data-icon="palette"></i><h3>Colores</h3>
           <button type="button" id="themeReset" class="btn subtle sm">Restablecer colores</button>

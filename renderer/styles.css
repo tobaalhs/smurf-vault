@@ -297,6 +297,10 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
 .setting-head { display: flex; align-items: center; gap: 8px; }
 .setting-head .ic { color: var(--gold); }
 .setting-head h3 { margin: 0; font-size: 14px; font-weight: 600; flex: 1; }
+.pw-change { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pw-change #pwCurrent { grid-column: 1 / -1; }
+.pw-change .btn { grid-column: 1 / -1; justify-self: start; }
+.setting .error:empty { display: none; }
 /* selector de colores */
 .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
 .theme-swatch {

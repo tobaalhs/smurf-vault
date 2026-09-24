@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, clipboard, Menu, Tray, nativeImage, shell, 
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { createKey, encryptWithKey, decryptEnvelope, decryptWithKey, emptyVault } = require('./src/vault');
+const { createKey, checkPassword, encryptWithKey, decryptEnvelope, decryptWithKey, emptyVault } = require('./src/vault');
 const { Drive } = require('./src/drive');
 const lcu = require('./src/lcu');
 const riot = require('./src/riot');
@@ -573,6 +573,32 @@ function registerIpc() {
     pendingGameEnds.clear();
     if (changed) persist();
     return publicData();
+  });
+
+  // Cambiar la contraseña maestra. Pide la actual aunque la bóveda esté abierta: si alguien usa la app
+  // desbloqueada, no puede dejar afuera al dueño. Todo lo cifrado con la clave vieja se vuelve a cifrar.
+  handle('vault:changePassword', async (current, next) => {
+    requireSession();
+    if (!(await checkPassword(current || '', session.salt, session.key))) throw new Error('La contraseña actual no es correcta');
+    if (!next || next.length < 8) throw new Error('La nueva contraseña debe tener al menos 8 caracteres');
+    if (next === current) throw new Error('La nueva contraseña es igual a la actual');
+
+    // Sesiones de Riot guardadas en este PC: se leen con la clave vieja antes de cambiarla.
+    const sessions = Object.keys(sessionIndex()).map((id) => [id, loadSession(id)]).filter(([, files]) => files);
+
+    const { key, salt } = await createKey(next);
+    session.key = key;
+    session.salt = salt;
+
+    persist(); // bóveda local + Drive
+    // La copia de respaldo local quedó con la contraseña vieja: se reemplaza por la nueva.
+    fs.copyFileSync(LOCAL_VAULT, LOCAL_BACKUP);
+    saveHistory();
+    saveLp();
+    for (const [id, files] of sessions) {
+      fs.writeFileSync(sessionFile(id), JSON.stringify(encryptWithKey(key, salt, { files })));
+    }
+    return true;
   });
 
   handle('vault:lock', () => {

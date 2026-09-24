@@ -708,6 +708,7 @@ $('#riotForm').addEventListener('submit', async (e) => {
 async function openSettings() {
   status = await window.api.status();
   renderThemeGrid();
+  clearPasswordChange();
   tools = await window.api.getTools();
   renderWindowSettings();
   renderGoogle();
@@ -732,6 +733,45 @@ function renderGoogle() {
 }
 
 $('#syncChip').addEventListener('click', openSettings);
+
+// ---------- cambiar la contraseña maestra ----------
+
+function clearPasswordChange() {
+  for (const id of ['#pwCurrent', '#pwNew', '#pwNew2']) $(id).value = '';
+  $('#pwChangeError').textContent = '';
+}
+
+$('#pwChangeBtn').addEventListener('click', async (e) => {
+  const current = $('#pwCurrent').value;
+  const next = $('#pwNew').value;
+  $('#pwChangeError').textContent = '';
+  if (next !== $('#pwNew2').value) {
+    $('#pwChangeError').textContent = 'Las contraseñas nuevas no coinciden';
+    return;
+  }
+  const btn = e.currentTarget;
+  btn.classList.add('loading');
+  btn.disabled = true;
+  try {
+    await window.api.changePassword(current, next);
+    clearPasswordChange();
+    toast('Contraseña maestra cambiada. En tus otros PCs usa la nueva.', 'ok');
+  } catch (err) {
+    $('#pwChangeError').textContent = err.message;
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+});
+
+// Enter en estos campos cambia la contraseña (y no envía el formulario de Ajustes).
+document.querySelectorAll('.pw-change input').forEach((i) =>
+  i.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    $('#pwChangeBtn').click();
+  })
+);
 
 $('#googleLinkBtn').addEventListener('click', (e) =>
   run(e.currentTarget, async () => {

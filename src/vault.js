@@ -56,6 +56,12 @@ function decryptWithKey(key, envelope) {
   return JSON.parse(plain.toString('utf8'));
 }
 
+/** true si `password` es la contraseña de la clave `key` (derivada con `salt`). */
+async function checkPassword(password, salt, key) {
+  const candidate = await deriveKey(password, salt);
+  return candidate.length === key.length && crypto.timingSafeEqual(candidate, key);
+}
+
 async function createKey(password) {
   const salt = crypto.randomBytes(16);
   const key = await deriveKey(password, salt);
@@ -66,4 +72,4 @@ function emptyVault() {
   return { accounts: [], settings: { riotApiKey: '' } };
 }
 
-module.exports = { createKey, encryptWithKey, decryptEnvelope, decryptWithKey, emptyVault };
+module.exports = { createKey, checkPassword, encryptWithKey, decryptEnvelope, decryptWithKey, emptyVault };

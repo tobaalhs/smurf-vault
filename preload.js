@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   create: (pw) => call('vault:create', pw),
   unlock: (pw) => call('vault:unlock', pw),
   lock: () => call('vault:lock'),
+  changePassword: (current, next) => call('vault:changePassword', current, next),
   saveAccount: (acc) => call('accounts:save', acc),
   importAccounts: (rows) => call('accounts:import', rows),
   deleteAccount: (id) => call('accounts:delete', id),
