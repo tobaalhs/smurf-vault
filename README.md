@@ -6,10 +6,14 @@ Bóveda cifrada para tus cuentas de Riot (LoL), con respaldo en tu Google Drive.
 
 - 🔐 **Todo cifrado** con tu contraseña maestra (scrypt + AES-256-GCM). Nada sale de tu PC sin cifrar.
 - ☁️ **Respaldo en Google Drive**: la bóveda se guarda en una carpeta oculta de *tu* Drive y se sincroniza entre PCs.
+- ▶️ **Cambiar de cuenta con un clic**: inicia sesión una vez marcando *Mantener sesión iniciada* y Smurf Vault
+  guarda esa sesión del Riot Client (cifrada, solo en este PC, nunca en Drive). Después, **Jugar** cierra el
+  cliente, restaura la sesión de esa cuenta y abre el LoL, sin escribir la contraseña.
 - 🎮 **Detectar cliente**: con el LoL abierto, lee nick, tag, nivel, ícono, rangos de LoL y TFT y la última partida de la cuenta en la que iniciaste sesión.
 - 🕒 **Última partida** de cada cuenta (LoL o TFT), para ordenarlas por las que usas más.
 - 📈 **Actualizar rangos** de todas las cuentas sin abrir el juego (API oficial de Riot, necesita una API key gratuita).
 - ⚡ **Autoaceptar partidas** (opcional, en Herramientas).
+- 🪟 **Bandeja del sistema**: al cerrar sigue en segundo plano (configurable) y puede abrirse al iniciar Windows.
 - 📋 Copiar usuario y contraseña con un clic; el portapapeles se limpia a los 30 s.
 - 📥 **Importar** tu txt viejo (`usuario:contraseña` por línea).
 - 🔄 **Se actualiza sola** cuando sale una versión nueva (versión instalada).
@@ -40,7 +44,7 @@ npm run dist     # genera el instalador y la versión portable en dist/
 
 - `main.js`: proceso principal (bóveda en memoria, IPC, sincronización).
 - `src/vault.js`: cifrado · `src/drive.js`: OAuth de Google + Drive `appDataFolder`.
-- `src/lcu.js`: API local del cliente de LoL · `src/autoaccept.js`: autoaceptar.
+- `src/switcher.js`: guardar/restaurar la sesión del Riot Client · `src/lcu.js`: API local del cliente de LoL · `src/autoaccept.js`: autoaceptar.
 - `src/riot.js`: API oficial de Riot · `renderer/`: interfaz.
 
 ## Publicar una versión

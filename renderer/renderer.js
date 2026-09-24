@@ -11,11 +11,29 @@ let lockMode = 'unlock';
 let detectTimer = null;
 let lastSyncError = null;
 let pendingSnapshot = null; // cuenta detectada que se está creando como nueva
+let addingAccount = false; // se abrió el login para agregar una cuenta: la próxima desconocida se ofrece guardar
 let afterRiotKey = null; // qué actualizar después de guardar la API key
 let tools = null; // { autoAccept, autoAcceptDelay, clientConnected }
 const seenPuuids = new Set(); // cuentas del cliente ya avisadas en esta sesión
 
 hydrateIcons();
+
+// ---------- botones de ventana ----------
+
+function setMaximized(maximized) {
+  const b = $('#winMax');
+  b.innerHTML = icon(maximized ? 'restore' : 'maximize');
+  b.setAttribute('aria-label', maximized ? 'Restaurar' : 'Maximizar');
+}
+$('#winMin').addEventListener('click', () => window.api.winMinimize());
+$('#winMax').addEventListener('click', () => window.api.winToggleMaximize());
+$('#winClose').addEventListener('click', () => window.api.winClose());
+window.api.onWinState((s) => setMaximized(s.maximized));
+window.api.winIsMaximized().then(setMaximized).catch(() => {});
+// Doble clic en la barra de arriba maximiza, como en una ventana normal.
+document.addEventListener('dblclick', (e) => {
+  if (e.target.closest('.topbar, .lock-drag') && !e.target.closest('button, input, select, .menu')) window.api.winToggleMaximize();
+});
 
 // ---------- utilidades ----------
 
@@ -176,6 +194,12 @@ async function lockVault() {
   toast('Bóveda bloqueada');
 }
 
+// Bloqueada desde el menú de la bandeja.
+window.api.onLocked(() => {
+  if (!data) return;
+  showLock();
+});
+
 // ---------- app principal ----------
 
 async function showApp() {
@@ -259,7 +283,7 @@ function card(a) {
         </div>
       </div>
       <div class="card-actions">
-        <button class="btn ghost icon-only" data-act="refresh" data-tip="Actualizar esta cuenta">${icon('refresh')}</button>
+        <button class="btn ghost icon-only" data-act="refresh" data-tip="Actualizar esta cuenta · datos ${a.lastSyncedAt ? 'de ' + ago(a.lastSyncedAt) : 'sin actualizar'}">${icon('refresh')}</button>
         <button class="btn ghost icon-only" data-act="edit" data-tip="Editar">${icon('pencil')}</button>
       </div>
     </div>
@@ -274,16 +298,24 @@ function card(a) {
         <span class="cred-label">Usuario</span><span class="cred-value">${esc(a.username)}</span>${icon('copy')}
       </button>
       <button class="cred" data-act="copy-pass">
-        <span class="cred-label">Contraseña</span><span class="cred-value secret">••••••••</span>${icon('copy')}
+        <span class="cred-label">Contraseña</span>${a.password ? '<span class="cred-value secret">••••••••</span>' : '<span class="cred-value none">Sin guardar</span>'}${icon('copy')}
       </button>
     </div>
     ${a.notes ? `<p class="notes">${esc(a.notes)}</p>` : ''}
     <div class="card-foot">
       <span class="played${a.lastPlayedAt ? '' : ' none'}" data-tip="${a.lastPlayedAt ? new Date(a.lastPlayedAt).toLocaleString() : 'Se obtiene al detectar la cuenta en el cliente o con Actualizar rangos'}">${icon('gamepad')}${a.lastPlayedAt ? 'Jugó ' + ago(a.lastPlayedAt) : 'Sin partidas registradas'}</span>
       <span class="spacer"></span>
-      <span>Datos ${a.lastSyncedAt ? ago(a.lastSyncedAt) : 'sin actualizar'}</span>
+      ${playButton(a)}
     </div>
   </article>`;
+}
+
+// Con sesión guardada entra directo; sin ella abre el login con la contraseña copiada.
+function playButton(a) {
+  const saved = data.sessions?.[a.id];
+  return saved
+    ? `<button class="btn primary sm" data-act="play" data-tip="Cierra el cliente y abre el LoL con esta cuenta · sesión guardada ${ago(saved)}">${icon('play')}Jugar</button>`
+    : `<button class="btn subtle sm" data-act="play" data-tip="Abre el login del cliente con la contraseña copiada. Marca &quot;Mantener sesión iniciada&quot; y la próxima vez entras con un clic.">${icon('logIn')}Iniciar sesión</button>`;
 }
 
 function render() {
@@ -347,6 +379,10 @@ $('#grid').addEventListener('click', async (e) => {
       });
       break;
     case 'copy-pass':
+      if (!acc.password) {
+        toast('Esta cuenta no tiene contraseña guardada: agrégala en Editar', 'error');
+        break;
+      }
       await run(null, async () => {
         await window.api.copy(id, 'password');
         flashCopied(btn);
@@ -355,6 +391,9 @@ $('#grid').addEventListener('click', async (e) => {
       break;
     case 'refresh':
       refreshRanks([id], btn);
+      break;
+    case 'play':
+      play(acc, btn);
       break;
   }
 });
@@ -373,6 +412,7 @@ function openAccount(acc = {}) {
   f.password.type = 'password';
   $('#accountTitle').textContent = acc.id ? 'Editar cuenta' : 'Nueva cuenta';
   $('#accountDelete').classList.toggle('hidden', !acc.id);
+  $('#accountForget').classList.toggle('hidden', !data.sessions?.[acc.id]);
   $('#accountDialog').showModal();
   (acc.username ? f.label : f.username).focus();
 }
@@ -422,6 +462,15 @@ $('#accountDelete').addEventListener('click', async () => {
   });
 });
 
+$('#accountForget').addEventListener('click', (e) =>
+  run(e.currentTarget, async () => {
+    data = await window.api.forgetSession($('#accountForm').id.value);
+    $('#accountForget').classList.add('hidden');
+    render();
+    toast('Sesión olvidada');
+  })
+);
+
 function confirmDialog(text) {
   const d = $('#confirmDialog');
   $('#confirmText').textContent = text;
@@ -434,8 +483,26 @@ function newAccount() {
   pendingSnapshot = null;
   openAccount();
 }
-$('#btnAdd').addEventListener('click', newAccount);
-$('#emptyAdd').addEventListener('click', newAccount);
+
+// La forma principal de agregar: iniciar sesión en el cliente. La manual queda en el menú.
+function openAdd() {
+  $('#addDialog').showModal();
+}
+$('#btnAdd').addEventListener('click', openAdd);
+$('#emptyAdd').addEventListener('click', openAdd);
+$('#addManual').addEventListener('click', () => {
+  $('#addDialog').close();
+  newAccount();
+});
+$('#addOpenLogin').addEventListener('click', (e) =>
+  run(e.currentTarget, async () => {
+    await window.api.loginOther();
+    $('#addDialog').close();
+    addingAccount = true;
+    detectSoon();
+    showGuide('Inicia sesión en el Riot Client con la cuenta que quieres agregar y marca <b>Mantener sesión iniciada</b>. El LoL se abre solo y aquí te pedimos confirmarla.');
+  })
+);
 
 // ---------- menú ⋯ ----------
 
@@ -455,7 +522,7 @@ $('#menu').addEventListener('click', (e) => {
   const item = e.target.closest('[data-menu]');
   if (!item) return;
   closeMenu();
-  ({ tools: openTools, import: openImport, settings: openSettings, lock: lockVault })[item.dataset.menu]();
+  ({ manual: newAccount, tools: openTools, import: openImport, settings: openSettings, lock: lockVault })[item.dataset.menu]();
 });
 
 // ---------- importar ----------
@@ -496,17 +563,66 @@ $('#importForm').addEventListener('submit', async (e) => {
   });
 });
 
+// ---------- cambiar de cuenta ----------
+
+// Después de cambiar de cuenta buscamos el cliente cada 5 s (no cada 30) hasta que el LoL abra.
+function detectSoon(timeoutMs = 180_000) {
+  const until = Date.now() + timeoutMs;
+  const timer = setInterval(async () => {
+    const found = await detect().catch(() => null);
+    if (found || Date.now() > until || !data) clearInterval(timer);
+  }, 5000);
+}
+
+async function play(acc, btn) {
+  await run(btn, async () => {
+    const res = await window.api.play(acc.id);
+    detectSoon();
+    if (res.restored) {
+      hideGuide();
+      toast(`Abriendo LoL con ${riotId(acc) || acc.username}…`, 'ok');
+    } else {
+      showGuide(
+        `Inicia sesión con <b>${esc(acc.username)}</b>${acc.password ? ' (la contraseña está copiada: pégala con Ctrl V)' : ''} y marca <b>Mantener sesión iniciada</b>. La próxima vez entras con un clic.`
+      );
+    }
+  });
+}
+
+// Instrucciones mientras se inicia sesión en el cliente: quedan hasta que se detecte la cuenta o se cierren.
+function showGuide(html) {
+  const b = $('#guideBanner');
+  b.innerHTML = `${icon('logIn')}<span>${html}</span><div class="spacer"></div>
+    <button class="btn ghost icon-only sm" id="guideClose" aria-label="Cerrar">${icon('x')}</button>`;
+  b.classList.remove('hidden');
+  $('#guideClose').onclick = () => {
+    hideGuide();
+    addingAccount = false;
+  };
+}
+
+function hideGuide() {
+  $('#guideBanner').classList.add('hidden');
+}
+
 // ---------- detección del cliente ----------
 
 async function detect({ manual = false } = {}) {
   const res = await window.api.detect(manual);
   if (!res) {
     if (manual) toast('No encontré el cliente de LoL abierto con una sesión iniciada', 'error');
-    return;
+    return null;
   }
   const { snapshot, matchedId, autoLinked } = res;
+  hideGuide();
+  const adding = addingAccount;
+  addingAccount = false;
+  const hadSession = !!data.sessions?.[matchedId];
   data = res.data;
   render();
+  if (matchedId && !hadSession && data.sessions?.[matchedId]) {
+    toast(`Sesión de ${snapshot.gameName} guardada: la próxima vez entras con un clic`, 'ok');
+  }
   if (matchedId) {
     const name = `${snapshot.gameName}#${snapshot.tagLine}`;
     const acc = data.accounts.find((a) => a.id === matchedId);
@@ -514,23 +630,40 @@ async function detect({ manual = false } = {}) {
     else if (manual || !seenPuuids.has(snapshot.puuid)) toast(`${name} actualizada desde el cliente`, 'ok');
     seenPuuids.add(snapshot.puuid);
     hideBanner();
-    return;
+    return res;
   }
-  if (!manual && seenPuuids.has(snapshot.puuid)) return;
+  if (!manual && !adding && seenPuuids.has(snapshot.puuid)) return res;
   seenPuuids.add(snapshot.puuid);
-  showBanner(snapshot);
+  showBanner(snapshot, adding);
+  return res;
 }
 
-function showBanner(snap) {
+// `adding`: la cuenta viene de "Agregar cuenta", así que lo normal es guardarla como nueva.
+function showBanner(snap, adding = false) {
   const b = $('#detectBanner');
-  b.innerHTML = `${icon('gamepad')}
-    <span>En el cliente está abierta <b>${esc(snap.gameName)}#${esc(snap.tagLine)}</b> · ${esc(snap.server)} · nivel ${snap.level}. ¿La vinculamos a una de tus cuentas?</span>
-    <div class="spacer"></div>
-    <button class="btn primary sm" id="bannerLink">Vincular</button>
-    <button class="btn ghost icon-only sm" id="bannerClose" aria-label="Cerrar">${icon('x')}</button>`;
+  const who = `<b>${esc(snap.gameName)}#${esc(snap.tagLine)}</b> · ${esc(snap.server)} · nivel ${snap.level}`;
+  b.innerHTML = adding
+    ? `${icon('gamepad')}
+      <span>Iniciaste sesión con ${who}. ¿La guardamos en tu bóveda?</span>
+      <div class="spacer"></div>
+      <button class="btn subtle sm" id="bannerLink">Es una que ya tengo</button>
+      <button class="btn primary sm" id="bannerNew">Guardar cuenta</button>
+      <button class="btn ghost icon-only sm" id="bannerClose" aria-label="Cerrar">${icon('x')}</button>`
+    : `${icon('gamepad')}
+      <span>En el cliente está abierta ${who}. ¿La vinculamos a una de tus cuentas?</span>
+      <div class="spacer"></div>
+      <button class="btn primary sm" id="bannerLink">Vincular</button>
+      <button class="btn ghost icon-only sm" id="bannerClose" aria-label="Cerrar">${icon('x')}</button>`;
   b.classList.remove('hidden');
   $('#bannerLink').onclick = () => openLinkDialog(snap);
   $('#bannerClose').onclick = hideBanner;
+  if (adding) $('#bannerNew').onclick = () => saveDetectedAsNew(snap);
+}
+
+function saveDetectedAsNew(snap) {
+  hideBanner();
+  pendingSnapshot = snap;
+  openAccount({ username: snap.username, gameName: snap.gameName, tagLine: snap.tagLine, server: snap.server });
 }
 
 function hideBanner() {
@@ -564,9 +697,7 @@ function openLinkDialog(snap) {
   };
   $('#linkNew').onclick = () => {
     $('#linkDialog').close();
-    hideBanner();
-    pendingSnapshot = snap;
-    openAccount({ gameName: snap.gameName, tagLine: snap.tagLine, server: snap.server });
+    saveDetectedAsNew(snap);
   };
   $('#linkDialog').showModal();
 }
@@ -622,6 +753,8 @@ $('#riotForm').addEventListener('submit', async (e) => {
 
 async function openSettings() {
   status = await window.api.status();
+  tools = await window.api.getTools();
+  renderWindowSettings();
   renderGoogle();
   $('#riotKey').value = data.settings.riotApiKey || '';
   $('#appVersion').textContent = `Smurf Vault v${status.version}`;
@@ -747,6 +880,26 @@ async function setTools(patch) {
 }
 
 $('#autoChip').addEventListener('click', openTools);
+function renderWindowSettings() {
+  $('#closeToTray').checked = tools.closeToTray;
+  $('#openAtLogin').checked = tools.openAtLogin;
+  $('#openAtLoginHint').textContent = tools.closeToTray
+    ? 'Parte en la bandeja, sin abrir la ventana.'
+    : 'Se abre la ventana al prender el PC (con la bandeja activada partiría oculto).';
+}
+
+$('#closeToTray').addEventListener('change', async (e) => {
+  await setTools({ closeToTray: e.target.checked });
+  renderWindowSettings();
+  toast(e.target.checked ? 'Al cerrar, Smurf Vault seguirá en la bandeja' : 'Al cerrar, Smurf Vault se cerrará del todo');
+});
+
+$('#openAtLogin').addEventListener('change', async (e) => {
+  const on = e.target.checked;
+  await setTools({ openAtLogin: on });
+  renderWindowSettings(); // si falló, el interruptor vuelve a como estaba
+  if (tools.openAtLogin === on) toast(on ? 'Smurf Vault se abrirá al iniciar Windows' : 'Ya no se abrirá al iniciar Windows');
+});
 $('#autoAcceptToggle').addEventListener('change', (e) => {
   setTools({ autoAccept: e.target.checked });
   toast(e.target.checked ? 'Autoaceptar activado' : 'Autoaceptar desactivado', e.target.checked ? 'ok' : 'info');
@@ -772,7 +925,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === 'l') { e.preventDefault(); lockVault(); }
   if (k === 'f') { e.preventDefault(); $('#search').focus(); }
-  if (k === 'n') { e.preventDefault(); newAccount(); }
+  if (k === 'n') { e.preventDefault(); openAdd(); }
 });
 
 showLock();

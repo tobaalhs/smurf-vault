@@ -116,7 +116,7 @@ label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-w
 
 /* ---------- bloqueo ---------- */
 .lock {
-  height: 100%; display: grid; place-items: center; padding: 16px;
+  height: 100%; display: grid; place-items: center; padding: 16px; position: relative;
   background:
     radial-gradient(600px 400px at 50% 30%, rgba(31,214,208,.07), transparent 70%),
     radial-gradient(900px 500px at 50% 110%, rgba(214,179,106,.07), transparent 70%),
@@ -146,7 +146,10 @@ label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-w
   display: flex; align-items: center; gap: 8px;
   height: 60px; padding: 0 18px; flex: none;
   background: rgba(12,16,22,.9); border-bottom: 1px solid var(--border);
+  /* es la barra de titulo: se arrastra la ventana desde aqui; a la derecha van los botones de ventana */
+  -webkit-app-region: drag; padding-right: 156px;
 }
+.topbar button, .topbar input, .topbar select, .topbar .menu { -webkit-app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
 .brand img { width: 32px; height: 32px; border-radius: 8px; }
 .divider { width: 1px; height: 22px; background: var(--border-strong); margin: 0 4px; }
@@ -202,6 +205,8 @@ label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-w
   border: 1px solid rgba(31,214,208,.25); border-radius: var(--radius);
 }
 .banner .ic { color: var(--cyan); }
+.banner.guide { align-items: flex-start; line-height: 1.5; border-color: rgba(214,179,106,.35); background: linear-gradient(90deg, rgba(214,179,106,.12), rgba(214,179,106,.03)); }
+.banner.guide > .ic { color: var(--gold); margin-top: 3px; flex: none; }
 
 main { flex: 1; overflow: auto; padding: 16px 22px 28px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
@@ -270,6 +275,7 @@ main { flex: 1; overflow: auto; padding: 16px 22px 28px; }
 .cred-label { font-size: 10.5px; color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .cred-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .cred-value.secret { letter-spacing: .12em; }
+.cred-value.none { color: var(--muted); font-size: 12px; }
 .cred .ic { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); transition: color .15s; }
 .cred:hover .ic { color: var(--gold); }
 .cred.copied { border-color: rgba(60,207,142,.5); }
@@ -425,3 +431,17 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
 /* Emblemas de rango (imágenes de Riot vía CommunityDragon, incluidas en assets/ranks) */
 .rank-name .emblem { width: 30px; height: 30px; object-fit: contain; flex: none; margin: -7px -3px -7px -6px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.5)); }
 .rank { min-height: 22px; }
+
+/* ---------- botones de ventana (minimizar / maximizar / cerrar) ---------- */
+.winctl { position: fixed; top: 0; right: 0; height: 60px; display: flex; z-index: 40; -webkit-app-region: no-drag; }
+.winctl button {
+  width: 46px; height: 100%; display: grid; place-items: center;
+  background: transparent; border: 0; color: var(--muted); transition: background .12s, color .12s;
+}
+.winctl button:hover { background: rgba(255,255,255,.07); color: var(--text); }
+.winctl button.close:hover { background: #e81123; color: #fff; }
+.winctl .ic { width: 15px; height: 15px; stroke-width: 1.6; }
+.lock-drag { position: absolute; top: 0; left: 0; right: 138px; height: 60px; -webkit-app-region: drag; }
+.setting-row { display: flex; align-items: center; gap: 14px; }
+.setting-row > span { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.setting-row small { color: var(--muted); font-size: 12px; line-height: 1.45; }

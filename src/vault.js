@@ -47,6 +47,15 @@ async function decryptEnvelope(envelope, password) {
   }
 }
 
+/** Descifra un envelope con una clave ya derivada (la de la bóveda abierta). */
+function decryptWithKey(key, envelope) {
+  if (!envelope || envelope.format !== FORMAT) throw new Error('Archivo cifrado inválido');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+  const plain = Buffer.concat([decipher.update(Buffer.from(envelope.data, 'base64')), decipher.final()]);
+  return JSON.parse(plain.toString('utf8'));
+}
+
 async function createKey(password) {
   const salt = crypto.randomBytes(16);
   const key = await deriveKey(password, salt);
@@ -57,4 +66,4 @@ function emptyVault() {
   return { accounts: [], settings: { riotApiKey: '' } };
 }
 
-module.exports = { createKey, encryptWithKey, decryptEnvelope, emptyVault };
+module.exports = { createKey, encryptWithKey, decryptEnvelope, decryptWithKey, emptyVault };

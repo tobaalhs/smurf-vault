@@ -12,6 +12,7 @@
 <body>
   <!-- ============ Pantalla de bloqueo ============ -->
   <section id="lockScreen" class="lock hidden">
+    <div class="lock-drag"></div>
     <div class="lock-card">
       <img class="lock-logo" src="assets/logo.png" alt="" />
       <h1>Smurf Vault</h1>
@@ -63,11 +64,15 @@
       <button id="btnRefresh" class="btn subtle" data-tip="Actualiza nick, nivel, rangos (LoL y TFT) y última partida de todas las cuentas">
         <i data-icon="refresh"></i><span class="lbl">Actualizar rangos</span>
       </button>
-      <button id="btnAdd" class="btn primary" data-tip="Agregar una cuenta (Ctrl N)"><i data-icon="plus"></i><span class="lbl">Nueva cuenta</span></button>
+      <button id="btnAdd" class="btn primary" data-tip="Inicia sesión en el Riot Client y la cuenta se guarda sola (Ctrl N)"><i data-icon="plus"></i><span class="lbl">Nueva cuenta</span></button>
 
       <div class="menu-wrap">
         <button id="btnMenu" class="btn subtle icon-only" aria-label="Más opciones"><i data-icon="more"></i></button>
         <div id="menu" class="menu hidden" role="menu">
+          <button class="menu-item" data-menu="manual">
+            <i data-icon="pencil"></i>
+            <span><b>Agregar cuenta a mano</b><small>Escribe usuario y contraseña sin abrir el cliente</small></span>
+          </button>
           <button class="menu-item" data-menu="tools">
             <i data-icon="wrench"></i>
             <span><b>Herramientas</b><small>Autoaceptar partidas y extras del cliente</small></span>
@@ -108,6 +113,7 @@
       </div>
     </div>
 
+    <div id="guideBanner" class="banner guide hidden"></div>
     <div id="detectBanner" class="banner hidden"></div>
 
     <main>
@@ -115,7 +121,7 @@
       <div id="empty" class="empty hidden">
         <img src="assets/logo.png" alt="" />
         <h3>Tu bóveda está vacía</h3>
-        <p>Agrega tu primera cuenta o importa la lista que tenías en un txt.</p>
+        <p>Agrega tu primera cuenta iniciando sesión en el cliente, o importa la lista que tenías en un txt.</p>
         <div class="empty-actions">
           <button class="btn primary" id="emptyAdd"><i data-icon="plus"></i>Nueva cuenta</button>
           <button class="btn subtle" id="emptyImport"><i data-icon="upload"></i>Importar txt</button>
@@ -138,7 +144,7 @@
         <label>Usuario <input name="username" required autocomplete="off" /></label>
         <label>Contraseña
           <div class="pwfield">
-            <input name="password" type="password" required autocomplete="off" />
+            <input name="password" type="password" autocomplete="off" placeholder="Opcional con sesión guardada" />
             <button type="button" class="pw-toggle" data-toggle-pw aria-label="Mostrar contraseña"><i data-icon="eye"></i></button>
           </div>
         </label>
@@ -151,9 +157,33 @@
       <label>Notas <textarea name="notes" rows="3" placeholder="Correo asociado, fecha de creación, ban…"></textarea></label>
       <div class="actions">
         <button type="button" class="btn danger-ghost hidden" id="accountDelete">Eliminar</button>
+        <button type="button" class="btn ghost hidden" id="accountForget" data-tip="La próxima vez tendrás que escribir la contraseña en el cliente">Olvidar sesión</button>
         <div class="spacer"></div>
         <button type="button" class="btn subtle" data-close>Cancelar</button>
         <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ Diálogo: agregar cuenta desde el cliente ============ -->
+  <dialog id="addDialog">
+    <form method="dialog">
+      <header class="dlg-head">
+        <h2>Agregar cuenta</h2>
+        <button type="button" class="btn ghost icon-only" data-close aria-label="Cerrar"><i data-icon="x"></i></button>
+      </header>
+      <p class="hint">Inicia sesión una vez en el Riot Client y Smurf Vault guarda la cuenta sola. Después entras con un clic en <b>Jugar</b>, sin escribir la contraseña.</p>
+      <ol class="steps">
+        <li>Toca <b>Abrir login de Riot</b>. Si el cliente está abierto, se cierra.</li>
+        <li>Inicia sesión con la cuenta y marca <b>Mantener sesión iniciada</b> (Stay signed in).</li>
+        <li>El LoL se abre solo y aquí te pedimos confirmar la cuenta para guardarla.</li>
+      </ol>
+      <div class="tip"><i data-icon="key"></i><span>Sin <b>Mantener sesión iniciada</b> la cuenta se guarda igual, pero tendrás que escribir la contraseña cada vez.</span></div>
+      <div class="actions">
+        <button type="button" class="btn ghost" id="addManual">Agregar a mano</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn subtle" data-close>Cancelar</button>
+        <button type="button" class="btn primary" id="addOpenLogin"><i data-icon="logIn"></i>Abrir login de Riot</button>
       </div>
     </form>
   </dialog>
@@ -275,6 +305,30 @@
       </section>
 
       <section class="setting">
+        <div class="setting-head"><i data-icon="minimize"></i><h3>Ventana</h3></div>
+        <div class="setting-row">
+          <span>
+            <b>Al cerrar, seguir en la bandeja</b>
+            <small>Queda junto al reloj y autoaceptar y la detección de cuentas siguen funcionando. Para salir del todo: clic derecho en el ícono → Salir.</small>
+          </span>
+          <label class="switch" aria-label="Al cerrar, seguir en la bandeja">
+            <input type="checkbox" id="closeToTray" />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <span>
+            <b>Abrir al iniciar Windows</b>
+            <small id="openAtLoginHint">Parte en la bandeja, sin abrir la ventana.</small>
+          </span>
+          <label class="switch" aria-label="Abrir al iniciar Windows">
+            <input type="checkbox" id="openAtLogin" />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </div>
+      </section>
+
+      <section class="setting">
         <div class="setting-head"><i data-icon="key"></i><h3>API key de Riot</h3></div>
         <p class="hint">Se usa para "Actualizar rangos". Queda guardada cifrada dentro de tu bóveda.</p>
         <input id="riotKey" type="password" placeholder="RGAPI-…" autocomplete="off" />
@@ -304,6 +358,13 @@
 
   <div id="toasts"></div>
   <div id="tooltip" class="tooltip hidden"></div>
+  <!-- Botones de ventana propios (la ventana no usa la barra de título de Windows).
+       Van al final: Electron aplica las zonas de arrastre en orden y la barra de arriba los taparía -->
+  <div class="winctl">
+    <button type="button" id="winMin" aria-label="Minimizar"><i data-icon="minimize"></i></button>
+    <button type="button" id="winMax" aria-label="Maximizar"><i data-icon="maximize"></i></button>
+    <button type="button" id="winClose" class="close" aria-label="Cerrar"><i data-icon="x"></i></button>
+  </div>
   <script src="icons.js"></script>
   <script src="renderer.js"></script>
 </body>

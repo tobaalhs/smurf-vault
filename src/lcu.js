@@ -167,4 +167,4 @@ async function currentAccount({ force = false } = {}) {
   };
 }
 
-module.exports = { currentAccount, get, request, isConnected };
+module.exports = { currentAccount, get, request, rawRequest, isConnected };

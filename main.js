@@ -1,13 +1,14 @@
-const { app, BrowserWindow, ipcMain, clipboard, Menu, shell, Notification, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, Menu, Tray, nativeImage, shell, Notification, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { createKey, encryptWithKey, decryptEnvelope, emptyVault } = require('./src/vault');
+const { createKey, encryptWithKey, decryptEnvelope, decryptWithKey, emptyVault } = require('./src/vault');
 const { Drive } = require('./src/drive');
 const lcu = require('./src/lcu');
 const riot = require('./src/riot');
 const { AutoAccept } = require('./src/autoaccept');
 const { GameflowWatcher } = require('./src/gameflow');
+const switcher = require('./src/switcher');
 const { autoUpdater } = require('electron-updater');
 
 const userData = app.getPath('userData');
@@ -15,11 +16,20 @@ const LOCAL_VAULT = path.join(userData, 'vault.dat');
 const LOCAL_BACKUP = path.join(userData, 'vault.prev.dat');
 // Preferencias que no son secretas y deben funcionar con la bóveda bloqueada.
 const CONFIG_PATH = path.join(userData, 'config.json');
+// Sesiones del Riot Client por cuenta ("Mantener sesión iniciada"). Solo viven en este PC: no se
+// suben a Drive. Van cifradas con la clave de la bóveda, así que solo se usan con la bóveda abierta.
+const SESSIONS_DIR = path.join(userData, 'sessions');
 
 let win;
 let drive;
 let autoAccept;
-let config = { autoAccept: false, autoAcceptDelay: 0 };
+let config = { autoAccept: false, autoAcceptDelay: 0, closeToTray: true, trayHintShown: false };
+let tray = null;
+let quitting = false; // true cuando se sale de verdad (menú de la bandeja, actualización)
+
+// Una sola instancia: si la abres de nuevo estando en la bandeja, se muestra la que ya existe.
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
 let updateReady = null; // versión descargada, lista para instalar
 
 // Actualizaciones desde GitHub Releases. Solo en la versión instalada:
@@ -70,11 +80,88 @@ function saveConfig(patch) {
   config = { ...config, ...patch };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
+  syncTray();
   return toolsStatus();
 }
 
+// ---------- ventana y bandeja ----------
+
+function showWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function quitApp() {
+  quitting = true;
+  app.quit();
+}
+
+function lockVault() {
+  session = null;
+  win?.webContents.send('locked');
+}
+
+/** El ícono de la bandeja solo existe si al cerrar la app sigue en segundo plano. */
+function syncTray() {
+  if (!config.closeToTray) {
+    tray?.destroy();
+    tray = null;
+    return;
+  }
+  if (tray) return;
+  const image = nativeImage.createFromPath(path.join(__dirname, 'build', 'icon.png')).resize({ width: 16, height: 16 });
+  tray = new Tray(image);
+  tray.setToolTip('Smurf Vault');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Abrir Smurf Vault', click: showWindow },
+      { label: 'Bloquear bóveda', click: lockVault },
+      { type: 'separator' },
+      { label: 'Salir', click: quitApp },
+    ])
+  );
+  tray.on('click', showWindow);
+}
+
+function onWindowClose(e) {
+  if (quitting || !config.closeToTray) return;
+  e.preventDefault();
+  win.hide();
+  // La primera vez avisamos dónde quedó, para que no parezca que se cerró.
+  if (!config.trayHintShown && Notification.isSupported()) {
+    new Notification({
+      title: 'Smurf Vault sigue abierto',
+      body: 'Quedó en la bandeja del sistema. Clic derecho en el ícono para salir. Puedes cambiarlo en Ajustes.',
+      silent: true,
+    }).show();
+    saveConfig({ trayHintShown: true });
+  }
+}
+
 function toolsStatus() {
-  return { ...config, clientConnected: autoAccept.connected };
+  return { ...config, openAtLogin: openAtLogin(), clientConnected: autoAccept.connected };
+}
+
+// ---------- abrir al iniciar Windows ----------
+
+// Con --hidden (al iniciar Windows) la app parte directo en la bandeja, sin mostrar la ventana.
+const STARTUP_ARG = '--hidden';
+
+// En la portable, process.execPath es la copia temporal: hay que registrar el .exe real.
+function startupExe() {
+  return process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+}
+
+function openAtLogin() {
+  return app.getLoginItemSettings({ path: startupExe(), args: [STARTUP_ARG] }).openAtLogin;
+}
+
+function setOpenAtLogin(enabled) {
+  // En desarrollo se registraría electron.exe, no Smurf Vault.
+  if (!app.isPackaged) throw new Error('Abrir al iniciar Windows solo funciona en la versión instalada');
+  app.setLoginItemSettings({ openAtLogin: enabled, path: startupExe(), args: [STARTUP_ARG] });
 }
 
 function onMatchAccepted() {
@@ -105,7 +192,89 @@ function persist() {
 }
 
 function publicData() {
-  return session ? session.data : null;
+  return session ? { ...session.data, sessions: sessionIndex() } : null;
+}
+
+// ---------- sesiones del Riot Client (cambio de cuenta) ----------
+
+const savedSessionHash = new Map(); // id -> hash de lo último guardado, para no reescribir lo mismo
+let switching = false;
+
+function sessionFile(id) {
+  return path.join(SESSIONS_DIR, `${id}.dat`);
+}
+
+/** { idCuenta: fecha en que se guardó su sesión } */
+function sessionIndex() {
+  const out = {};
+  try {
+    for (const f of fs.readdirSync(SESSIONS_DIR)) {
+      if (f.endsWith('.dat')) out[f.slice(0, -4)] = fs.statSync(path.join(SESSIONS_DIR, f)).mtime.toISOString();
+    }
+  } catch {}
+  return out;
+}
+
+/** Guarda la sesión abierta en el Riot Client como la de `acc`, si tiene "Mantener sesión iniciada". */
+function captureSession(acc) {
+  const files = switcher.readSession();
+  if (!switcher.isRemembered(files)) return false;
+  const hash = crypto.createHash('sha256').update(JSON.stringify(files)).digest('hex');
+  if (savedSessionHash.get(acc.id) === hash) return true;
+  fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+  const tmp = sessionFile(acc.id) + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(encryptWithKey(session.key, session.salt, { files })));
+  fs.renameSync(tmp, sessionFile(acc.id));
+  savedSessionHash.set(acc.id, hash);
+  return true;
+}
+
+function loadSession(id) {
+  if (!fs.existsSync(sessionFile(id))) return null;
+  try {
+    return decryptWithKey(session.key, JSON.parse(fs.readFileSync(sessionFile(id), 'utf8'))).files;
+  } catch {
+    return null; // de otra bóveda o dañada: se inicia sesión de nuevo y se vuelve a guardar
+  }
+}
+
+function deleteSession(id) {
+  fs.rmSync(sessionFile(id), { force: true });
+  savedSessionHash.delete(id);
+}
+
+// Cerrar el cliente en estas fases te saca de la cola o de la partida.
+const BUSY_PHASES = { ReadyCheck: 'aceptando partida', ChampSelect: 'en selección de campeones', GameStart: 'entrando a la partida', InProgress: 'en partida', Reconnect: 'en partida' };
+
+/**
+ * Cierra el Riot Client, deja la sesión de `id` (o ninguna, para mostrar el login) y abre el LoL.
+ * Antes guarda la sesión de la cuenta que estaba abierta, porque Riot renueva los tokens.
+ */
+async function switchTo(id) {
+  if (switching) throw new Error('Ya se está cambiando de cuenta');
+  switching = true;
+  try {
+    const phase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+    if (BUSY_PHASES[phase]) throw new Error(`No se puede cambiar de cuenta ${BUSY_PHASES[phase]}`);
+    if (await switcher.isInGame()) throw new Error('No se puede cambiar de cuenta en partida');
+    await detectClient().catch(() => null);
+    const files = id ? loadSession(id) : null;
+    await switcher.closeRiot();
+    switcher.writeSession(files);
+    switcher.launchLeague();
+    switcher.ensureLeagueStarts().catch(() => {});
+    return { restored: !!files };
+  } finally {
+    switching = false;
+  }
+}
+
+function copySecret(value) {
+  clipboard.writeText(value);
+  // Limpiamos el portapapeles a los 30 s si nadie copió otra cosa.
+  setTimeout(() => {
+    if (clipboard.readText() === value) clipboard.clear();
+  }, 30_000);
 }
 
 function findAccount(id) {
@@ -177,6 +346,9 @@ async function detectClient({ force = false } = {}) {
       applySnapshot(match.acc, snap);
       persist();
       matchedId = match.acc.id;
+      try {
+        captureSession(match.acc);
+      } catch {}
     }
   }
   return { snapshot: snap, matchedId, autoLinked, data: publicData() };
@@ -240,9 +412,17 @@ function registerIpc() {
   }));
 
   handle('app:installUpdate', () => {
-    if (updateReady) autoUpdater.quitAndInstall();
+    if (updateReady) {
+      quitting = true;
+      autoUpdater.quitAndInstall();
+    }
     return true;
   });
+
+  handle('win:minimize', () => win.minimize());
+  handle('win:toggleMaximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
+  handle('win:close', () => win.close());
+  handle('win:isMaximized', () => win.isMaximized());
 
   // Solo abrimos en el navegador links conocidos, nunca URLs arbitrarias.
   const EXTERNAL = ['https://developer.riotgames.com/', 'https://github.com/tobaalhs/smurf-vault'];
@@ -356,6 +536,7 @@ function registerIpc() {
   handle('accounts:delete', (id) => {
     requireSession();
     session.data.accounts = session.data.accounts.filter((a) => a.id !== id);
+    deleteSession(id);
     persist();
     return publicData();
   });
@@ -369,12 +550,7 @@ function registerIpc() {
 
   handle('clipboard:copy', (id, field) => {
     requireSession();
-    const value = findAccount(id)[field] || '';
-    clipboard.writeText(value);
-    // Limpiamos el portapapeles a los 30 s si nadie copió otra cosa.
-    setTimeout(() => {
-      if (clipboard.readText() === value) clipboard.clear();
-    }, 30_000);
+    copySecret(findAccount(id)[field] || '');
     return true;
   });
 
@@ -418,6 +594,8 @@ function registerIpc() {
     const allowed = {};
     if ('autoAccept' in patch) allowed.autoAccept = !!patch.autoAccept;
     if ('autoAcceptDelay' in patch) allowed.autoAcceptDelay = Number(patch.autoAcceptDelay) || 0;
+    if ('closeToTray' in patch) allowed.closeToTray = !!patch.closeToTray;
+    if ('openAtLogin' in patch) setOpenAtLogin(!!patch.openAtLogin);
     return saveConfig(allowed);
   });
 
@@ -427,8 +605,33 @@ function registerIpc() {
     requireSession();
     // Una misma cuenta de Riot solo puede estar vinculada a una entrada.
     for (const a of session.data.accounts) if (a.puuid === snap.puuid && a.id !== id) delete a.puuid;
-    applySnapshot(findAccount(id), snap);
+    const acc = findAccount(id);
+    applySnapshot(acc, snap);
     persist();
+    try {
+      captureSession(acc);
+    } catch {}
+    return publicData();
+  });
+
+  // Jugar con una cuenta: restaura su sesión guardada, o abre el login con la contraseña copiada.
+  handle('switch:play', async (id) => {
+    requireSession();
+    const acc = findAccount(id);
+    const res = await switchTo(id);
+    if (!res.restored && acc.password) copySecret(acc.password);
+    return res;
+  });
+
+  // Abre el Riot Client en la pantalla de login para entrar con otra cuenta.
+  handle('switch:login', () => {
+    requireSession();
+    return switchTo(null);
+  });
+
+  handle('switch:forget', (id) => {
+    requireSession();
+    deleteSession(id);
     return publicData();
   });
 
@@ -460,6 +663,8 @@ function createWindow() {
     backgroundColor: '#0a0e13',
     title: 'Smurf Vault',
     icon: path.join(__dirname, 'build', 'icon.png'),
+    frame: false, // la barra de arriba de la app hace de barra de título, con sus propios botones
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -468,12 +673,27 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // Al iniciar Windows parte en la bandeja; sin bandeja no tendría cómo abrirse, así que se muestra.
+  const hidden = process.argv.includes(STARTUP_ARG) && config.closeToTray;
+  win.once('ready-to-show', () => {
+    if (!hidden) win.show();
+  });
   // Links externos -> navegador del sistema, nunca dentro de la app.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.on('close', onWindowClose);
+  const sendState = () => win.webContents.send('win:state', { maximized: win.isMaximized() });
+  win.on('maximize', sendState);
+  win.on('unmaximize', sendState);
 }
 
+app.on('second-instance', showWindow);
+app.on('before-quit', () => {
+  quitting = true;
+});
+
 app.whenReady().then(() => {
+  if (!singleInstance) return;
   Menu.setApplicationMenu(null);
   drive = new Drive({ credentialsPath: credentialsPath(), tokenPath: path.join(userData, 'google-token.bin') });
   app.setAppUserModelId('Smurf Vault'); // necesario para las notificaciones en Windows
@@ -485,6 +705,7 @@ app.whenReady().then(() => {
   autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
   registerIpc();
   createWindow();
+  syncTray();
   setupUpdates();
   new GameflowWatcher({ onGameEnd: () => onGameEnd().catch(() => {}) }).start();
 });
