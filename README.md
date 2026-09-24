@@ -51,8 +51,8 @@ npm run dist     # genera el instalador y la versión portable en dist/
 Las credenciales de Google se toman del secreto `GOOGLE_CREDENTIALS` del repo (Settings → Secrets and
 variables → Actions), con el contenido completo de `credentials.json`. Nunca van en el código.
 
-Para compilar tu propia versión (o regenerar las credenciales) necesitas un Client ID de Google propio:
-sigue [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md) y deja el `credentials.json` en la raíz del proyecto.
+Para compilar tu propia versión necesitas un Client ID de Google propio (tipo "App de escritorio", con la
+API de Drive y el permiso `drive.appdata`): deja su `credentials.json` en la raíz del proyecto.
 
 ## Aviso legal
 Smurf Vault isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone
