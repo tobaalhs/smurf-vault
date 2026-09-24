@@ -621,7 +621,7 @@ function renderGoogle() {
   $('#googleBadge').textContent = g.linked ? 'Conectado' : 'No conectado';
   $('#googleBadge').className = `badge ${g.linked ? 'ok' : ''}`;
   $('#googleStatus').innerHTML = !g.hasCredentials
-    ? 'Para sincronizar con Drive, primero carga el <code>credentials.json</code> de Google (lo creas siguiendo GOOGLE_SETUP.md, o te lo pasa quien te compartió la app).'
+    ? 'Para sincronizar con Drive, primero carga el <code>credentials.json</code> de Google (esta versión no lo trae incluido; se crea siguiendo docs/GOOGLE_SETUP.md).'
     : g.linked
       ? `Tu bóveda cifrada se guarda en una carpeta oculta del Drive de <b>${esc(g.email || 'tu cuenta de Google')}</b>. Cada cambio se sube solo.`
       : 'Tu bóveda solo está en este PC. Vincula Google para tener un respaldo y usarla en otros PCs.';

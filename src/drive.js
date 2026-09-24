@@ -30,7 +30,7 @@ class Drive {
 
   #client() {
     if (!this.hasCredentials()) {
-      throw new Error('Falta credentials.json (revisa GOOGLE_SETUP.md)');
+      throw new Error('Falta credentials.json (revisa docs/GOOGLE_SETUP.md)');
     }
     const raw = JSON.parse(fs.readFileSync(this.credentialsPath, 'utf8'));
     const c = raw.installed || raw.web || raw;

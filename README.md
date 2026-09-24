@@ -22,12 +22,9 @@ Bóveda cifrada para tus cuentas de Riot (LoL), con respaldo en tu Google Drive.
 3. Crea tu contraseña maestra. **No se puede recuperar**: si la olvidas, pierdes la bóveda.
 
 ### Sincronizar con Google Drive
-La app necesita un `credentials.json` de Google (un "Client ID" de app de escritorio):
-- Si alguien te compartió la app, pídele su `credentials.json`.
-- Si no, créalo tú siguiendo [GOOGLE_SETUP.md](GOOGLE_SETUP.md) (~10 min, gratis).
-
-Después: ⚙ **Ajustes → Cargar credentials.json → Vincular cuenta de Google**, y marca la casilla de Drive
-cuando Google te pida permisos.
+⚙ **Ajustes → Vincular cuenta de Google**, inicia sesión con tu Gmail y **marca la casilla de Drive** cuando
+Google te pida permisos. Google puede avisar que la app "no está verificada": **Configuración avanzada → Ir a
+Smurf Vault**. Tu bóveda se guarda cifrada en una carpeta oculta de *tu* Drive; nadie más tiene acceso.
 
 ### API key de Riot (opcional)
 Para "Actualizar rangos": entra a https://developer.riotgames.com, copia la **Development API Key**
@@ -53,6 +50,9 @@ npm run dist     # genera el instalador y la versión portable en dist/
 
 Las credenciales de Google se toman del secreto `GOOGLE_CREDENTIALS` del repo (Settings → Secrets and
 variables → Actions), con el contenido completo de `credentials.json`. Nunca van en el código.
+
+Para compilar tu propia versión (o regenerar las credenciales) necesitas un Client ID de Google propio:
+sigue [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md) y deja el `credentials.json` en la raíz del proyecto.
 
 ## Aviso legal
 Smurf Vault isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone

@@ -1,7 +1,11 @@
-# Vincular Google Drive (se hace una sola vez, ~10 min)
+# Crear las credenciales de Google (para desarrolladores)
 
-La app necesita su propio "Client ID" de Google para poder pedirte permiso.
-Todo es gratis y solo tu cuenta va a usarlo.
+> **Si solo usas Smurf Vault, no necesitas esto**: el instalador de
+> [Releases](https://github.com/tobaalhs/smurf-vault/releases) ya trae las credenciales.
+> Esta guía es para compilar tu propia versión o para regenerar las credenciales del proyecto.
+
+La app necesita un "Client ID" de Google para poder pedir permiso a cada usuario.
+Todo es gratis (~10 min).
 
 ## 1. Crear el proyecto
 1. Entra a https://console.cloud.google.com con tu cuenta de Google.
