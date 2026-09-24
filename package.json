@@ -1,7 +1,7 @@
 {
   "name": "smurf-vault",
   "productName": "Smurf Vault",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Bóveda cifrada para tus cuentas de Riot, sincronizada con Google Drive",
   "author": "tobaalhs",
   "license": "MIT",
