@@ -114,6 +114,9 @@ function findAccount(id) {
 }
 
 function applySnapshot(acc, snap) {
+  // Si cambió la cuenta de Riot vinculada, el PUUID de la API anterior ya no sirve.
+  if (snap.puuid !== acc.puuid) delete acc.apiPuuid;
+  if (snap.apiPuuid) acc.apiPuuid = snap.apiPuuid;
   Object.assign(acc, {
     puuid: snap.puuid,
     gameName: snap.gameName,

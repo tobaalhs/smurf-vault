@@ -23,7 +23,14 @@ function serverFromClient(region) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function call(apiKey, host, path, retries = 3) {
+class RiotError extends Error {
+  constructor(status, step, detail) {
+    super(`Riot respondió ${status} al consultar ${step}${detail ? ` (${detail})` : ''}`);
+    this.status = status;
+  }
+}
+
+async function call(apiKey, host, path, step, retries = 3) {
   const res = await fetch(`https://${host}.api.riotgames.com${path}`, {
     headers: { 'X-Riot-Token': apiKey },
   });
@@ -35,9 +42,15 @@ async function call(apiKey, host, path, retries = 3) {
     // Límite de consultas: Riot dice cuántos segundos esperar.
     if (!retries) throw new Error('Demasiadas consultas a Riot, espera un poco');
     await sleep((Number(res.headers.get('retry-after')) || 5) * 1000);
-    return call(apiKey, host, path, retries - 1);
+    return call(apiKey, host, path, step, retries - 1);
   }
-  if (!res.ok) throw new Error(`Riot API ${res.status}`);
+  if (!res.ok) {
+    let detail = '';
+    try {
+      detail = (await res.json())?.status?.message || '';
+    } catch {}
+    throw new RiotError(res.status, step, detail);
+  }
   return res.json();
 }
 
@@ -50,6 +63,32 @@ function rank(entries, queue) {
   return e ? { tier: e.tier, division: ['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(e.tier) ? '' : e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses } : null;
 }
 
+function byRiotId(apiKey, srv, account) {
+  return call(
+    apiKey,
+    srv.region,
+    `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(account.gameName)}/${encodeURIComponent(account.tagLine)}`,
+    'la cuenta por Riot ID'
+  );
+}
+
+/** Nick, nivel, rangos y última partida de un PUUID válido para esta API key. */
+async function details(apiKey, srv, puuid) {
+  const matchRegion = srv.matchRegion || srv.region;
+  const [summoner, entries, matchIds, tftEntries, tftIds] = await Promise.all([
+    call(apiKey, srv.platform, `/lol/summoner/v4/summoners/by-puuid/${puuid}`, 'el invocador'),
+    call(apiKey, srv.platform, `/lol/league/v4/entries/by-puuid/${puuid}`, 'el rango'),
+    call(apiKey, matchRegion, `/lol/match/v5/matches/by-puuid/${puuid}/ids?start=0&count=1`, 'el historial'),
+    optional(call(apiKey, srv.platform, `/tft/league/v1/by-puuid/${puuid}`, 'el rango de TFT')),
+    optional(call(apiKey, matchRegion, `/tft/match/v1/matches/by-puuid/${puuid}/ids?start=0&count=1`, 'el historial de TFT')),
+  ]);
+  const [lastMatch, lastTft] = await Promise.all([
+    matchIds?.[0] ? optional(call(apiKey, matchRegion, `/lol/match/v5/matches/${matchIds[0]}`, 'la última partida')) : null,
+    tftIds?.[0] ? optional(call(apiKey, matchRegion, `/tft/match/v1/matches/${tftIds[0]}`, 'la última partida de TFT')) : null,
+  ]);
+  return { summoner, entries, tftEntries, lastMatch, lastTft };
+}
+
 /**
  * Actualiza una cuenta usando su PUUID, o si no lo tiene, su Riot ID (Nombre#TAG).
  * Devuelve solo los campos a sobrescribir.
@@ -57,33 +96,29 @@ function rank(entries, queue) {
 async function lookup(apiKey, account) {
   const srv = SERVERS[account.server];
   if (!srv) throw new Error(`Servidor desconocido: ${account.server || '(vacío)'}`);
+  const hasRiotId = account.gameName && account.tagLine;
+  if (!account.puuid && !hasRiotId) throw new Error('Necesita Riot ID (Nombre#TAG) o haberla detectado con el cliente');
 
+  // Preferimos el PUUID que ya funcionó con la API; si no, el que vino del cliente.
+  const knownPuuid = account.apiPuuid || account.puuid;
   let acc;
-  if (account.puuid) {
-    acc = await call(apiKey, srv.region, `/riot/account/v1/accounts/by-puuid/${account.puuid}`);
-  } else if (account.gameName && account.tagLine) {
-    acc = await call(
-      apiKey,
-      srv.region,
-      `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(account.gameName)}/${encodeURIComponent(account.tagLine)}`
-    );
-  } else {
-    throw new Error('Necesita Riot ID (Nombre#TAG) o haberla detectado con el cliente');
+  let info;
+  try {
+    acc = knownPuuid
+      ? await call(apiKey, srv.region, `/riot/account/v1/accounts/by-puuid/${knownPuuid}`, 'la cuenta')
+      : await byRiotId(apiKey, srv, account);
+    if (!acc) throw new Error('Riot no encontró la cuenta');
+    info = await details(apiKey, srv, acc.puuid);
+  } catch (e) {
+    // 400 con un PUUID = Riot no lo acepta para esta key. Si hay Riot ID, la buscamos por nombre.
+    if (!(e instanceof RiotError && e.status === 400 && knownPuuid)) throw e;
+    if (!hasRiotId) throw new Error(`${e.message}. Agrégale su Riot ID (Nombre#TAG) en Editar para buscarla por nombre`);
+    acc = await byRiotId(apiKey, srv, account);
+    if (!acc) throw new Error(`Riot no encontró ${account.gameName}#${account.tagLine}`);
+    info = await details(apiKey, srv, acc.puuid);
   }
-  if (!acc) throw new Error('Riot no encontró la cuenta');
 
-  const matchRegion = srv.matchRegion || srv.region;
-  const [summoner, entries, matchIds, tftEntries, tftIds] = await Promise.all([
-    call(apiKey, srv.platform, `/lol/summoner/v4/summoners/by-puuid/${acc.puuid}`),
-    call(apiKey, srv.platform, `/lol/league/v4/entries/by-puuid/${acc.puuid}`),
-    call(apiKey, matchRegion, `/lol/match/v5/matches/by-puuid/${acc.puuid}/ids?start=0&count=1`),
-    optional(call(apiKey, srv.platform, `/tft/league/v1/by-puuid/${acc.puuid}`)),
-    optional(call(apiKey, matchRegion, `/tft/match/v1/matches/by-puuid/${acc.puuid}/ids?start=0&count=1`)),
-  ]);
-  const [lastMatch, lastTft] = await Promise.all([
-    matchIds?.[0] ? call(apiKey, matchRegion, `/lol/match/v5/matches/${matchIds[0]}`) : null,
-    tftIds?.[0] ? optional(call(apiKey, matchRegion, `/tft/match/v1/matches/${tftIds[0]}`)) : null,
-  ]);
+  const { summoner, entries, tftEntries, lastMatch, lastTft } = info;
   // Última partida entre LoL y TFT.
   const endMs = Math.max(
     lastMatch?.info?.gameEndTimestamp || lastMatch?.info?.gameCreation || 0,
@@ -92,7 +127,9 @@ async function lookup(apiKey, account) {
   const tftRank = (queue) => (tftEntries === undefined ? undefined : rank(tftEntries, queue));
 
   return {
-    puuid: acc.puuid,
+    // El PUUID del cliente se conserva para reconocer la cuenta al detectarla.
+    puuid: account.puuid || acc.puuid,
+    apiPuuid: acc.puuid,
     gameName: acc.gameName,
     tagLine: acc.tagLine,
     level: summoner?.summonerLevel ?? account.level,
