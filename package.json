@@ -1,7 +1,7 @@
 {
   "name": "smurf-vault",
   "productName": "Smurf Vault",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Bóveda cifrada para tus cuentas de Riot, sincronizada con Google Drive",
   "author": "tobaalhs",
   "license": "MIT",
@@ -16,7 +16,12 @@
   "build": {
     "appId": "com.tobaalhs.smurfvault",
     "publish": [
-      { "provider": "github", "owner": "tobaalhs", "repo": "smurf-vault", "releaseType": "release" }
+      {
+        "provider": "github",
+        "owner": "tobaalhs",
+        "repo": "smurf-vault",
+        "releaseType": "release"
+      }
     ],
     "productName": "Smurf Vault",
     "directories": {
