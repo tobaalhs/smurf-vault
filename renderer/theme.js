@@ -5,17 +5,18 @@
 // utilidades al cargarse; `toast` solo se llama después, cuando ya existe.
 const q = (sel) => document.querySelector(sel);
 
+// [variable, nombre, color predeterminado, dónde se ve]
 const THEME_FIELDS = [
-  ['bg', 'Fondo', '#080b10'],
-  ['surface', 'Paneles', '#0f141b'],
-  ['text', 'Texto', '#ebe7de'],
-  ['muted', 'Texto secundario', '#7d8796'],
-  ['gold', 'Acento', '#d6b36a'],
-  ['cyan', 'Acento secundario', '#1fd6d0'],
-  ['ok', 'Positivo', '#3ccf8e'],
-  ['danger', 'Negativo', '#f06a5f'],
-  ['win', 'Victoria', '#5b9cf2'],
-  ['loss', 'Derrota', '#e84057'],
+  ['bg', 'Fondo de la app', '#080b10', 'El fondo general de todas las pantallas'],
+  ['surface', 'Tarjetas y paneles', '#0f141b', 'Tarjetas de cuentas, rangos, diálogos y campos'],
+  ['text', 'Texto principal', '#ebe7de', 'Nombres, títulos y la mayoría de los textos'],
+  ['muted', 'Texto de ayuda', '#7d8796', 'Textos chicos: explicaciones, fechas, etiquetas'],
+  ['gold', 'Botón Jugar y destacados', '#d6b36a', 'Botones principales (Jugar, Nueva cuenta), estrellas de favoritas y la cuenta seleccionada'],
+  ['cyan', 'Interruptores y enlaces', '#1fd6d0', 'Interruptores encendidos, enlaces, íconos de datos y el botón Iniciar sesión'],
+  ['ok', 'LP ganados y éxito', '#3ccf8e', 'LP ganados, barras de winrate sobre 50%, sesión guardada y mensajes de éxito'],
+  ['danger', 'Errores', '#f06a5f', 'Mensajes de error y botones para eliminar'],
+  ['win', 'Victorias', '#5b9cf2', 'Victorias en el historial de LoL'],
+  ['loss', 'Derrotas y LP perdidos', '#e84057', 'Derrotas en el historial y LP perdidos'],
 ];
 const THEME_DEFAULTS = Object.fromEntries(THEME_FIELDS.map(([k, , v]) => [k, v]));
 // Variables que se calculan a partir de las editables.
@@ -65,7 +66,7 @@ let themeSaveTimer = null;
 
 function renderThemeGrid() {
   q('#themeGrid').innerHTML = THEME_FIELDS.map(
-    ([k, label]) => `<label class="theme-swatch">
+    ([k, label, , tip]) => `<label class="theme-swatch" data-tip="${tip}">
       <input type="color" data-key="${k}" value="${currentTheme[k] || THEME_DEFAULTS[k]}" />
       <span>${label}</span>
     </label>`

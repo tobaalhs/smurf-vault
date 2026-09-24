@@ -104,7 +104,9 @@ document.addEventListener('mouseover', (e) => {
   const r = el.getBoundingClientRect();
   const t = tip.getBoundingClientRect();
   tip.style.left = `${Math.min(Math.max(8, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - 8)}px`;
-  tip.style.top = `${r.bottom + 8}px`;
+  // Debajo del elemento; si no cabe (botones de abajo de la ventana), arriba.
+  const below = r.bottom + 8;
+  tip.style.top = `${below + t.height > innerHeight - 8 ? Math.max(8, r.top - t.height - 8) : below}px`;
 });
 document.addEventListener('mousedown', () => $('#tooltip').classList.add('hidden'));
 
@@ -214,6 +216,8 @@ $('#lockGoogleBtn').addEventListener('click', (e) =>
     showLock();
   })
 );
+
+$('#btnLock').addEventListener('click', () => lockVault());
 
 async function lockVault() {
   await window.api.lock();
@@ -424,7 +428,14 @@ $('#menu').addEventListener('click', (e) => {
   const item = e.target.closest('[data-menu]');
   if (!item) return;
   closeMenu();
-  ({ manual: newAccount, tools: openTools, import: openImport, settings: openSettings, lock: lockVault })[item.dataset.menu]();
+  ({
+    riotRefresh: () => refreshRanks(undefined, null),
+    manual: newAccount,
+    tools: openTools,
+    import: openImport,
+    settings: openSettings,
+    lock: lockVault,
+  })[item.dataset.menu]();
 });
 
 // ---------- importar ----------
@@ -615,7 +626,18 @@ function stopDetect() {
   detectTimer = null;
 }
 
-$('#btnDetect').addEventListener('click', (e) => run(e.currentTarget, () => detect({ manual: true })));
+/**
+ * Actualiza una cuenta leyéndola del cliente de LoL (al instante, sin API key). Solo sirve si es la
+ * cuenta abierta en el cliente; si hay otra, lo avisa.
+ */
+async function updateFromClient(acc, btn) {
+  await run(btn, async () => {
+    const res = await detect({ manual: true }); // ya avisa si no hay cliente o qué cuenta se actualizó
+    if (res && res.matchedId !== acc.id) {
+      toast(`En el cliente está abierta ${res.snapshot.gameName}#${res.snapshot.tagLine}, no esta cuenta. Entra con Jugar para actualizarla.`, 'error');
+    }
+  });
+}
 
 // ---------- actualizar rangos (API de Riot) ----------
 
@@ -636,7 +658,6 @@ async function refreshRanks(ids, btn) {
   });
 }
 
-$('#btnRefresh').addEventListener('click', (e) => refreshRanks(undefined, e.currentTarget));
 
 $('#riotForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -753,6 +774,7 @@ window.api.onData((d) => {
 function renderTools() {
   if (!tools) return;
   $('#autoChip').classList.toggle('hidden', !tools.autoAccept);
+  $('#offlineChip').classList.toggle('hidden', !tools.appearOffline);
   $('#autoAcceptToggle').checked = tools.autoAccept;
   $('#autoAcceptBody').classList.toggle('off', !tools.autoAccept);
   document.querySelectorAll('#autoAcceptDelay button').forEach((b) =>
@@ -784,8 +806,9 @@ async function setTools(patch) {
 }
 
 $('#autoChip').addEventListener('click', openTools);
+$('#offlineChip').addEventListener('click', openTools);
 $('#offlineToggle').addEventListener('change', async (e) => {
-  await setTools({ appearOffline: e.target.checked });
+  await setTools({ appearOffline: e.target.checked }); // renderTools muestra u oculta el chip
   toast(e.target.checked ? 'Apareces desconectado en el LoL' : 'Vuelves a aparecer en línea', 'ok');
 });
 

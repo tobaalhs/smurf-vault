@@ -789,7 +789,7 @@ function detailHtml(a) {
           : `<button type="button" class="play-big login" data-act="play" data-tip="La primera vez, marca &quot;Mantener sesión iniciada&quot; y después entras con un clic"><span>${icon('logIn')}INICIAR SESIÓN</span></button>`
       }
       <button type="button" class="btn subtle" data-act="edit">${icon('pencil')}Editar</button>
-      <button type="button" class="btn subtle" data-act="refresh" data-tip="Actualiza rangos y nivel con la API de Riot">${icon('refresh')}Actualizar</button>
+      <button type="button" class="btn subtle" data-act="refresh" data-tip="Lee rangos, historial y maestrías desde el cliente de LoL (esta cuenta tiene que estar abierta ahí)">${icon('refresh')}Actualizar</button>
       <span class="d-caption">${esc(splashFor(a).caption)}</span>
     </div>`;
 }
@@ -857,7 +857,7 @@ $('#detail').addEventListener('click', async (e) => {
       openAccount(acc);
       break;
     case 'refresh':
-      refreshRanks([acc.id], btn);
+      updateFromClient(acc, btn);
       break;
     case 'fav':
       await run(null, async () => {

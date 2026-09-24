@@ -53,17 +53,17 @@
       <button id="autoChip" class="auto-chip hidden" type="button" data-tip="Autoaceptar partidas activado · clic para configurar">
         <i data-icon="zap"></i><span>Autoaceptar</span>
       </button>
+      <button id="offlineChip" class="auto-chip offline-chip hidden" type="button" data-tip="Apareces desconectado en el chat del LoL · clic para configurar">
+        <i data-icon="ghost"></i><span>Desconectado</span>
+      </button>
       <button id="syncChip" class="sync-chip off" type="button">
         <span class="dot"></span><span id="syncText">Solo local</span>
       </button>
 
       <div class="divider"></div>
 
-      <button id="btnDetect" class="btn subtle" data-tip="Lee la cuenta abierta en el cliente de LoL">
-        <i data-icon="gamepad"></i><span class="lbl">Detectar cliente</span>
-      </button>
-      <button id="btnRefresh" class="btn subtle" data-tip="Actualiza nick, nivel, rangos (LoL y TFT) y última partida de todas las cuentas">
-        <i data-icon="refresh"></i><span class="lbl">Actualizar rangos</span>
+      <button id="btnLock" class="btn subtle" data-tip="Bloquear la bóveda: oculta tus cuentas hasta que pongas la contraseña maestra (Ctrl L)">
+        <i data-icon="lockKey"></i><span class="lbl">Bloquear</span>
       </button>
       <button id="btnAdd" class="btn primary" data-tip="Inicia sesión en el Riot Client y la cuenta se guarda sola (Ctrl N)"><i data-icon="plus"></i><span class="lbl">Nueva cuenta</span></button>
 
@@ -73,6 +73,10 @@
           <button class="menu-item" data-menu="manual">
             <i data-icon="pencil"></i>
             <span><b>Agregar cuenta a mano</b><small>Escribe usuario y contraseña sin abrir el cliente</small></span>
+          </button>
+          <button class="menu-item" data-menu="riotRefresh">
+            <i data-icon="refresh"></i>
+            <span><b>Actualizar todas con la API de Riot</b><small>Rangos y nivel de todas las cuentas sin abrir el juego (necesita API key)</small></span>
           </button>
           <button class="menu-item" data-menu="tools">
             <i data-icon="wrench"></i>
@@ -297,7 +301,7 @@
 
       <section class="tool">
         <div class="tool-head">
-          <div class="tool-icon"><i data-icon="eyeOff"></i></div>
+          <div class="tool-icon"><i data-icon="ghost"></i></div>
           <div class="tool-text">
             <h3>Aparecer desconectado</h3>
             <p class="hint">Tus amigos te ven desconectado en el LoL aunque tengas el cliente abierto. Se mantiene al cambiar de cuenta, mientras Smurf Vault esté abierto. Al apagarlo vuelves a quedar en línea.</p>
