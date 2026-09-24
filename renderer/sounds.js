@@ -1,12 +1,16 @@
 // Sonidos de la interfaz, sintetizados al momento (sin archivos): un tick corto al recorrer el
-// carrusel, un pop al elegir una cuenta y un acorde al apretar Jugar. Volumen bajo a propósito.
+// carrusel, un pop al elegir una cuenta y un acorde al apretar Jugar. El volumen se ajusta en la
+// interfaz (0 a 1) y se recuerda en este PC.
 const Sounds = (() => {
-  const VOLUME = 0.5;
+  const DEFAULT_VOLUME = 0.5;
   let ctx = null;
   let lastTick = 0;
   let enabled = true;
+  let volume = DEFAULT_VOLUME;
   try {
     enabled = localStorage.getItem('sound') !== 'off';
+    const saved = parseFloat(localStorage.getItem('soundVolume'));
+    if (saved >= 0 && saved <= 1) volume = saved;
   } catch {}
 
   // El navegador solo deja sonar después de un clic o una tecla.
@@ -17,7 +21,7 @@ const Sounds = (() => {
   addEventListener('pointerdown', unlock, { capture: true });
   addEventListener('keydown', unlock, { capture: true });
 
-  const ready = () => enabled && ctx && ctx.state === 'running';
+  const ready = () => enabled && volume > 0 && ctx && ctx.state === 'running';
 
   function blip({ type = 'sine', from, to, dur, gain, delay = 0 }) {
     const t0 = ctx.currentTime + delay;
@@ -27,7 +31,7 @@ const Sounds = (() => {
     o.frequency.setValueAtTime(from, t0);
     o.frequency.exponentialRampToValueAtTime(to, t0 + dur * 0.6);
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain * VOLUME, t0 + 0.004);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain * volume), t0 + 0.004);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     o.connect(g).connect(ctx.destination);
     o.start(t0);
@@ -42,6 +46,15 @@ const Sounds = (() => {
       enabled = on;
       try {
         localStorage.setItem('sound', on ? 'on' : 'off');
+      } catch {}
+    },
+    get volume() {
+      return volume;
+    },
+    setVolume(v) {
+      volume = Math.min(1, Math.max(0, v));
+      try {
+        localStorage.setItem('soundVolume', String(volume));
       } catch {}
     },
     /** Clic seco al pasar cada cuenta; no más de uno cada 30 ms aunque se recorra muy rápido. */

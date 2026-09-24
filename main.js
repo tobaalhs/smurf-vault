@@ -321,6 +321,10 @@ function copySecret(value) {
   }, 30_000);
 }
 
+function riotIdOf(acc) {
+  return acc.gameName ? `${acc.gameName}#${acc.tagLine}` : '';
+}
+
 function findAccount(id) {
   const acc = session.data.accounts.find((a) => a.id === id);
   if (!acc) throw new Error('Cuenta no encontrada');
@@ -745,22 +749,35 @@ function registerIpc() {
     return publicData();
   });
 
+  // Actualiza con la API de Riot. Avisa el avance (`riot-progress`) y manda los datos después de cada
+  // cuenta, así la interfaz muestra en qué va y las cuentas se ven actualizadas al tiro.
+  let riotRefreshing = false;
   handle('riot:refresh', async (ids) => {
     requireSession();
     const key = session.data.settings.riotApiKey;
     if (!key) throw new Error('Configura tu API key de Riot en Ajustes');
-    const targets = ids?.length ? ids.map(findAccount) : session.data.accounts;
-    const errors = [];
-    for (const acc of targets) {
-      try {
-        applySnapshot(acc, await riot.lookup(key, acc));
-      } catch (e) {
-        errors.push(`${acc.label || acc.gameName || acc.username}: ${e.message}`);
+    if (riotRefreshing) throw new Error('Ya se están actualizando las cuentas');
+    riotRefreshing = true;
+    try {
+      const targets = ids?.length ? ids.map(findAccount) : session.data.accounts;
+      const errors = [];
+      for (const [i, acc] of targets.entries()) {
+        const name = acc.label || riotIdOf(acc) || acc.username;
+        win?.webContents.send('riot-progress', { done: i, total: targets.length, name });
+        try {
+          applySnapshot(acc, await riot.lookup(key, acc));
+        } catch (e) {
+          errors.push(`${name}: ${e.message}`);
+        }
+        requireSession(); // si se bloqueó la bóveda a mitad, se corta acá
+        if (targets.length > 1) win?.webContents.send('data', { reason: 'riot', data: publicData() });
+        await new Promise((r) => setTimeout(r, 150)); // no pasarse del rate limit
       }
-      await new Promise((r) => setTimeout(r, 150)); // no pasarse del rate limit
+      persist();
+      return { data: publicData(), errors, total: targets.length };
+    } finally {
+      riotRefreshing = false;
     }
-    persist();
-    return { data: publicData(), errors };
   });
 }
 

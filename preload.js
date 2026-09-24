@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
   onTools: (cb) => ipcRenderer.on('tools', (_e, s) => cb(s)),
   linkClient: (id, snap) => call('lcu:link', id, snap),
   refreshRanks: (ids) => call('riot:refresh', ids),
+  onRiotProgress: (cb) => ipcRenderer.on('riot-progress', (_e, p) => cb(p)),
   play: (id) => call('switch:play', id),
   loginOther: () => call('switch:login'),
   forgetSession: (id) => call('switch:forget', id),

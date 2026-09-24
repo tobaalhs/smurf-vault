@@ -649,14 +649,45 @@ async function refreshRanks(ids, btn) {
     $('#riotDialogKey').focus();
     return;
   }
-  await run(btn, async () => {
-    const res = await window.api.refreshRanks(ids);
-    data = res.data;
-    render();
-    if (res.errors.length) res.errors.slice(0, 3).forEach((m) => toast(m, 'error'));
-    else toast(ids ? 'Cuenta actualizada' : 'Rangos actualizados', 'ok');
-  });
+  const all = !ids?.length;
+  if (all) showRiotProgress({ done: 0, total: data.accounts.length, name: '' });
+  try {
+    await run(btn, async () => {
+      const res = await window.api.refreshRanks(ids);
+      data = res.data;
+      render();
+      const ok = res.total - res.errors.length;
+      if (all) toast(`${ok} de ${res.total} cuentas actualizadas con la API de Riot`, res.errors.length ? 'info' : 'ok');
+      else if (!res.errors.length) toast('Cuenta actualizada', 'ok');
+      res.errors.slice(0, 3).forEach((m) => toast(m, 'error'));
+      if (res.errors.length > 3) toast(`…y ${res.errors.length - 3} errores más`, 'error');
+    });
+  } finally {
+    hideRiotProgress();
+  }
 }
+
+// Panel de avance mientras se actualiza con la API de Riot (puede tardar: son varias consultas por cuenta).
+function showRiotProgress({ done, total, name }) {
+  let el = $('#riotProgress');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'riotProgress';
+    el.className = 'toast progress';
+    el.innerHTML = `<span class="spin"></span><div class="p-body"><b>Actualizando con la API de Riot</b><small></small><div class="p-bar"><i></i></div></div>`;
+    $('#toasts').prepend(el);
+  }
+  el.querySelector('small').textContent = `${Math.min(done + 1, total)} de ${total}${name ? ' · ' + name : ''}`;
+  el.querySelector('.p-bar i').style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+}
+
+function hideRiotProgress() {
+  $('#riotProgress')?.remove();
+}
+
+window.api.onRiotProgress((p) => {
+  if ($('#riotProgress')) showRiotProgress(p);
+});
 
 
 $('#riotForm').addEventListener('submit', async (e) => {

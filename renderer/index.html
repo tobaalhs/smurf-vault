@@ -134,7 +134,14 @@
                 <option value="played">Última partida</option>
               </select>
             </div>
-            <button type="button" id="soundBtn" class="btn subtle icon-only"></button>
+            <div class="vol-wrap">
+              <button type="button" id="soundBtn" class="btn subtle icon-only" aria-label="Sonido"></button>
+              <div class="vol-pop hidden" id="volPop">
+                <button type="button" id="volMute" class="btn ghost icon-only sm" aria-label="Silenciar"></button>
+                <input type="range" id="volRange" min="0" max="100" step="5" aria-label="Volumen" />
+                <span id="volValue"></span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="side-count"><span id="wheelCount"></span><span id="wheelPos"></span></div>

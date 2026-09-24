@@ -87,17 +87,46 @@ function rankLabel(r) {
   return `${TIER_ES[r.tier] || r.tier}${r.division ? ' ' + r.division : ''}`;
 }
 
+// Botón de sonido: abre un panel con el volumen y el botón para silenciar.
 function renderSoundBtn() {
-  const b = $('#soundBtn');
-  b.innerHTML = icon(Sounds.enabled ? 'volume' : 'volumeX');
-  b.dataset.tip = Sounds.enabled ? 'Sonidos activados · clic para silenciar' : 'Sonidos silenciados · clic para activar';
-  b.classList.toggle('muted', !Sounds.enabled);
+  const on = Sounds.enabled && Sounds.volume > 0;
+  const pct = Math.round(Sounds.volume * 100);
+  $('#soundBtn').innerHTML = icon(on ? 'volume' : 'volumeX');
+  $('#soundBtn').dataset.tip = on ? `Sonidos al ${pct}% · clic para ajustar` : 'Sonidos silenciados · clic para ajustar';
+  $('#soundBtn').classList.toggle('muted', !on);
+  $('#volMute').innerHTML = icon(on ? 'volume' : 'volumeX');
+  $('#volMute').dataset.tip = on ? 'Silenciar' : 'Activar sonidos';
+  $('#volRange').value = pct;
+  $('#volValue').textContent = Sounds.enabled ? `${pct}%` : 'Silencio';
 }
-$('#soundBtn').addEventListener('click', () => {
-  Sounds.setEnabled(!Sounds.enabled);
+
+function closeVolume() {
+  $('#volPop').classList.add('hidden');
+}
+
+$('#soundBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#volPop').classList.toggle('hidden');
+});
+$('#volPop').addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('click', closeVolume);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeVolume());
+
+$('#volMute').addEventListener('click', () => {
+  const on = Sounds.enabled && Sounds.volume > 0;
+  Sounds.setEnabled(!on);
+  if (!on && Sounds.volume === 0) Sounds.setVolume(0.5); // estaba en 0: vuelve a un volumen audible
   renderSoundBtn();
   Sounds.pop();
 });
+
+// Mientras se arrastra cambia el volumen; al soltar suena un pop de prueba con el volumen nuevo.
+$('#volRange').addEventListener('input', (e) => {
+  Sounds.setVolume(e.target.value / 100);
+  if (!Sounds.enabled && Sounds.volume > 0) Sounds.setEnabled(true);
+  renderSoundBtn();
+});
+$('#volRange').addEventListener('change', () => Sounds.pop());
 renderSoundBtn();
 
 // ---------- rueda ----------
