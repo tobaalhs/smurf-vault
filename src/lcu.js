@@ -1,21 +1,22 @@
 // API local del cliente de League (LCU). Solo funciona con el cliente abierto.
 // La conexión (puerto + token) se guarda en memoria y solo se vuelve a buscar
-// cuando falla, para no lanzar PowerShell en cada consulta.
+// cuando falla. Se busca primero el lockfile y solo de vez en cuando el proceso.
 const https = require('https');
 const fs = require('fs');
+const pathLib = require('path');
 const { execFile } = require('child_process');
 
-const LOCKFILE_PATHS = [
-  'C:\\Riot Games\\League of Legends\\lockfile',
-  'D:\\Riot Games\\League of Legends\\lockfile',
-];
-const DISCOVER_EVERY_MS = 10_000;
+// Carpetas donde buscar el lockfile del cliente. Si el cliente está instalado en otra parte,
+// la carpeta se aprende al encontrar el proceso.
+const LOCKFILE_DIRS = new Set(['C:\\Riot Games\\League of Legends', 'D:\\Riot Games\\League of Legends']);
+// Leer el lockfile es casi gratis; buscar el proceso lanza PowerShell, así que se limita.
+const PROCESS_LOOKUP_EVERY_MS = 60_000;
 
 // El cliente usa un certificado autofirmado: solo lo aceptamos para 127.0.0.1.
 const agent = new https.Agent({ rejectUnauthorized: false });
 
 let conn = null;
-let lastDiscover = 0;
+let lastProcessLookup = 0;
 
 function fromProcess() {
   return new Promise((resolve) => {
@@ -31,6 +32,8 @@ function fromProcess() {
         if (err || !stdout) return resolve(null);
         const port = stdout.match(/--app-port=(\d+)/)?.[1];
         const password = stdout.match(/--remoting-auth-token=([\w-]+)/)?.[1];
+        const dir = stdout.match(/--install-directory=([^"]+?)(?:"|\s--|$)/)?.[1];
+        if (dir) LOCKFILE_DIRS.add(dir.trim().replace(/[\\/]+$/, ''));
         resolve(port && password ? { port, password } : null);
       }
     );
@@ -38,9 +41,9 @@ function fromProcess() {
 }
 
 function fromLockfile() {
-  for (const p of LOCKFILE_PATHS) {
+  for (const dir of LOCKFILE_DIRS) {
     try {
-      const [, , port, password] = fs.readFileSync(p, 'utf8').split(':');
+      const [, , port, password] = fs.readFileSync(pathLib.join(dir, 'lockfile'), 'utf8').split(':');
       if (port && password) return { port, password };
     } catch {}
   }
@@ -49,9 +52,11 @@ function fromLockfile() {
 
 async function connection({ force = false } = {}) {
   if (conn) return conn;
-  if (!force && Date.now() - lastDiscover < DISCOVER_EVERY_MS) return null;
-  lastDiscover = Date.now();
-  conn = (await fromProcess()) || fromLockfile();
+  conn = fromLockfile();
+  if (conn) return conn;
+  if (!force && Date.now() - lastProcessLookup < PROCESS_LOOKUP_EVERY_MS) return null;
+  lastProcessLookup = Date.now();
+  conn = await fromProcess();
   return conn;
 }
 
@@ -101,7 +106,6 @@ async function request(method, path, opts) {
     return res;
   } catch {
     conn = null;
-    lastDiscover = 0; // la próxima consulta vuelve a buscar el cliente de inmediato
     return null;
   }
 }

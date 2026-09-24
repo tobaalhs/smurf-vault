@@ -7,6 +7,7 @@ const { Drive } = require('./src/drive');
 const lcu = require('./src/lcu');
 const riot = require('./src/riot');
 const { AutoAccept } = require('./src/autoaccept');
+const { GameflowWatcher } = require('./src/gameflow');
 const { autoUpdater } = require('electron-updater');
 
 const userData = app.getPath('userData');
@@ -160,6 +161,59 @@ function findDetectedAccount(snap) {
   return null;
 }
 
+/** Lee la cuenta abierta en el cliente y, si está guardada, la actualiza. */
+async function detectClient({ force = false } = {}) {
+  const snap = await lcu.currentAccount({ force });
+  if (!snap) return null;
+  snap.server = riot.serverFromClient(snap.server);
+  let matchedId = null;
+  let autoLinked = false;
+  if (session) {
+    const match = findDetectedAccount(snap);
+    if (match) {
+      autoLinked = match.acc.puuid !== snap.puuid;
+      // Una misma cuenta de Riot solo puede estar vinculada a una entrada.
+      for (const a of session.data.accounts) if (a.puuid === snap.puuid && a !== match.acc) delete a.puuid;
+      applySnapshot(match.acc, snap);
+      persist();
+      matchedId = match.acc.id;
+    }
+  }
+  return { snapshot: snap, matchedId, autoLinked, data: publicData() };
+}
+
+// Partidas terminadas mientras la bóveda estaba bloqueada: se aplican al desbloquear.
+const pendingGameEnds = new Map(); // puuid -> fecha
+
+function markPlayed(puuid, at) {
+  const acc = session?.data.accounts.find((a) => a.puuid === puuid || a.apiPuuid === puuid);
+  if (!acc || acc.lastPlayedAt > at) return null;
+  acc.lastPlayedAt = at;
+  return acc;
+}
+
+async function onGameEnd() {
+  const puuid = (await lcu.get('/lol-summoner/v1/current-summoner'))?.puuid;
+  if (!puuid) return;
+  const at = new Date().toISOString();
+  if (!session) {
+    pendingGameEnds.set(puuid, at);
+    return;
+  }
+  const acc = markPlayed(puuid, at);
+  if (acc) {
+    persist();
+    win?.webContents.send('data', { reason: 'game-end', account: acc.gameName || acc.username, data: publicData() });
+  }
+  // El cliente tarda unos segundos en actualizar LP y rango después de la partida.
+  for (const delay of [15_000, 60_000]) {
+    setTimeout(async () => {
+      const res = await detectClient().catch(() => null);
+      if (res?.matchedId) win?.webContents.send('data', { reason: 'refresh', data: res.data });
+    }, delay);
+  }
+}
+
 function requireSession() {
   if (!session) throw new Error('La bóveda está bloqueada');
 }
@@ -236,6 +290,12 @@ function registerIpc() {
     if (newest === local && remote?.updatedAt !== local.updatedAt) queueUpload(local);
     if (remoteError) emitSync('error', remoteError);
     else if (remote || drive.status().linked) emitSync('ok');
+
+    // Partidas que terminaron con la bóveda bloqueada.
+    let changed = false;
+    for (const [puuid, at] of pendingGameEnds) changed = !!markPlayed(puuid, at) || changed;
+    pendingGameEnds.clear();
+    if (changed) persist();
     return publicData();
   });
 
@@ -361,25 +421,7 @@ function registerIpc() {
     return saveConfig(allowed);
   });
 
-  handle('lcu:detect', async (manual) => {
-    const snap = await lcu.currentAccount({ force: !!manual });
-    if (!snap) return null;
-    snap.server = riot.serverFromClient(snap.server);
-    let matchedId = null;
-    let autoLinked = false;
-    if (session) {
-      const match = findDetectedAccount(snap);
-      if (match) {
-        autoLinked = match.acc.puuid !== snap.puuid;
-        // Una misma cuenta de Riot solo puede estar vinculada a una entrada.
-        for (const a of session.data.accounts) if (a.puuid === snap.puuid && a !== match.acc) delete a.puuid;
-        applySnapshot(match.acc, snap);
-        persist();
-        matchedId = match.acc.id;
-      }
-    }
-    return { snapshot: snap, matchedId, autoLinked, data: publicData() };
-  });
+  handle('lcu:detect', (manual) => detectClient({ force: !!manual }));
 
   handle('lcu:link', (id, snap) => {
     requireSession();
@@ -444,6 +486,7 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   setupUpdates();
+  new GameflowWatcher({ onGameEnd: () => onGameEnd().catch(() => {}) }).start();
 });
 
 app.on('window-all-closed', () => app.quit());

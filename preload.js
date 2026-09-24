@@ -31,4 +31,5 @@ contextBridge.exposeInMainWorld('api', {
   linkClient: (id, snap) => call('lcu:link', id, snap),
   refreshRanks: (ids) => call('riot:refresh', ids),
   onSync: (cb) => ipcRenderer.on('sync', (_e, s) => cb(s)),
+  onData: (cb) => ipcRenderer.on('data', (_e, d) => cb(d)),
 });

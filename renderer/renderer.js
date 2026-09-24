@@ -704,6 +704,14 @@ function updateSync(s) {
 
 window.api.onSync(updateSync);
 
+// Datos que cambian solos (fin de partida, LP actualizados después de la partida).
+window.api.onData((d) => {
+  if (!data || !d.data) return; // bóveda bloqueada
+  data = d.data;
+  render();
+  if (d.reason === 'game-end') toast(`Partida terminada · ${d.account} actualizada`, 'ok');
+});
+
 // ---------- herramientas (autoaceptar) ----------
 
 function renderTools() {
