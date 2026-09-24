@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('api', {
   saveAccount: (acc) => call('accounts:save', acc),
   importAccounts: (rows) => call('accounts:import', rows),
   deleteAccount: (id) => call('accounts:delete', id),
+  setFavorite: (id, favorite) => call('accounts:favorite', id, favorite),
+  gameData: () => call('game:data'),
   saveSettings: (s) => call('settings:save', s),
   copy: (id, field) => call('clipboard:copy', id, field),
   googleLink: () => call('google:link'),

@@ -131,17 +131,23 @@ function riotClientConnection(root = riotDataRoot()) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let launchRun = 0; // cada cambio de cuenta nuevo cancela la espera del anterior
+
 /**
  * El Riot Client ignora --launch-product si la sesión todavía no está lista y se queda en su inicio.
  * Esperamos a que haya sesión y le pedimos el LoL por su API local, como el botón "Jugar".
  * Sin sesión guardada sigue esperando a que inicies sesión a mano (hasta `timeoutMs`).
  */
 async function ensureLeagueStarts({ timeoutMs = 180_000 } = {}) {
+  const run = ++launchRun;
   const until = Date.now() + timeoutMs;
-  while (Date.now() < until) {
+  while (Date.now() < until && run === launchRun) {
     await sleep(2000);
     const running = await runningProcesses();
-    if (running.has('leagueclient.exe') || running.has('leagueclientux.exe')) return true;
+    if (running.has('leagueclient.exe') || running.has('leagueclientux.exe')) {
+      await minimizeRiotClient();
+      return true;
+    }
     const conn = riotClientConnection();
     if (!conn) continue;
     try {
@@ -152,6 +158,32 @@ async function ensureLeagueStarts({ timeoutMs = 180_000 } = {}) {
     } catch {} // lockfile viejo o cliente arrancando
   }
   return false;
+}
+
+// Minimiza las ventanas del Riot Client con la API de Windows. No cierra nada: el LoL necesita que el
+// Riot Client siga corriendo, y si quieres volver a verlo está en la barra de tareas.
+// (Ojo: /riotclient/kill-ux de la API del LoL NO sirve para esto: cierra la ventana del propio LoL.)
+const MINIMIZE_RIOT_CLIENT = `
+Add-Type -Namespace SV -Name Win -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int n);'
+Get-Process -Name 'Riot Client' -ErrorAction SilentlyContinue |
+  Where-Object { $_.MainWindowHandle -ne 0 } |
+  ForEach-Object { [SV.Win]::ShowWindowAsync($_.MainWindowHandle, 6) | Out-Null }
+`;
+
+function runPowerShell(script) {
+  return new Promise((resolve) =>
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000 }, () =>
+      resolve()
+    )
+  );
+}
+
+/** Con el LoL ya abierto, minimiza el Riot Client (varias veces: a veces vuelve al frente al cargar el LoL). */
+async function minimizeRiotClient() {
+  for (const wait of [1500, 3000, 5000]) {
+    await sleep(wait);
+    await runPowerShell(MINIMIZE_RIOT_CLIENT);
+  }
 }
 
 module.exports = {

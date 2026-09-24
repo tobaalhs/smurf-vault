@@ -1,5 +1,7 @@
 // API oficial de Riot (necesita una API key de developer.riotgames.com).
 // Servidor que se ve en el cliente -> "platform" de la API + "región" para account-v1 y match-v5.
+const { masteryFrom, TOP: MASTERY_TOP } = require('./mastery');
+
 const SERVERS = {
   LAS: { platform: 'la2', region: 'americas' },
   LAN: { platform: 'la1', region: 'americas' },
@@ -75,18 +77,20 @@ function byRiotId(apiKey, srv, account) {
 /** Nick, nivel, rangos y última partida de un PUUID válido para esta API key. */
 async function details(apiKey, srv, puuid) {
   const matchRegion = srv.matchRegion || srv.region;
-  const [summoner, entries, matchIds, tftEntries, tftIds] = await Promise.all([
+  const [summoner, entries, matchIds, tftEntries, tftIds, masteryTop, masteryScore] = await Promise.all([
     call(apiKey, srv.platform, `/lol/summoner/v4/summoners/by-puuid/${puuid}`, 'el invocador'),
     call(apiKey, srv.platform, `/lol/league/v4/entries/by-puuid/${puuid}`, 'el rango'),
     call(apiKey, matchRegion, `/lol/match/v5/matches/by-puuid/${puuid}/ids?start=0&count=1`, 'el historial'),
     optional(call(apiKey, srv.platform, `/tft/league/v1/by-puuid/${puuid}`, 'el rango de TFT')),
     optional(call(apiKey, matchRegion, `/tft/match/v1/matches/by-puuid/${puuid}/ids?start=0&count=1`, 'el historial de TFT')),
+    optional(call(apiKey, srv.platform, `/lol/champion-mastery/v4/champion-masteries/by-puuid/${puuid}/top?count=${MASTERY_TOP}`, 'las maestrías')),
+    optional(call(apiKey, srv.platform, `/lol/champion-mastery/v4/scores/by-puuid/${puuid}`, 'el puntaje de maestría')),
   ]);
   const [lastMatch, lastTft] = await Promise.all([
     matchIds?.[0] ? optional(call(apiKey, matchRegion, `/lol/match/v5/matches/${matchIds[0]}`, 'la última partida')) : null,
     tftIds?.[0] ? optional(call(apiKey, matchRegion, `/tft/match/v1/matches/${tftIds[0]}`, 'la última partida de TFT')) : null,
   ]);
-  return { summoner, entries, tftEntries, lastMatch, lastTft };
+  return { summoner, entries, tftEntries, lastMatch, lastTft, mastery: masteryFrom(masteryTop, masteryScore) };
 }
 
 /**
@@ -118,7 +122,7 @@ async function lookup(apiKey, account) {
     info = await details(apiKey, srv, acc.puuid);
   }
 
-  const { summoner, entries, tftEntries, lastMatch, lastTft } = info;
+  const { summoner, entries, tftEntries, lastMatch, lastTft, mastery } = info;
   // Última partida entre LoL y TFT.
   const endMs = Math.max(
     lastMatch?.info?.gameEndTimestamp || lastMatch?.info?.gameCreation || 0,
@@ -135,6 +139,7 @@ async function lookup(apiKey, account) {
     level: summoner?.summonerLevel ?? account.level,
     iconId: summoner?.profileIconId ?? account.iconId,
     lastPlayedAt: endMs ? new Date(endMs).toISOString() : null,
+    mastery,
     ranks: {
       solo: rank(entries, 'RANKED_SOLO_5x5'),
       flex: rank(entries, 'RANKED_FLEX_SR'),

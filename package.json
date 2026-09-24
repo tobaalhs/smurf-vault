@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/vault.test.js && node test/autoaccept.test.js && node test/riot.test.js && node test/gameflow.test.js && node test/switcher.test.js",
+    "test": "node test/vault.test.js && node test/autoaccept.test.js && node test/riot.test.js && node test/gameflow.test.js && node test/switcher.test.js && node test/matches.test.js && node test/history.test.js && node test/offline.test.js",
     "dist": "electron-builder --win"
   },
   "build": {

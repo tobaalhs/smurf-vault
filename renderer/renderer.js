@@ -148,6 +148,8 @@ async function showLock() {
         ? 'Encontramos tu bóveda en Google Drive. Ingresa tu contraseña maestra.'
         : 'Bóveda bloqueada. Ingresa tu contraseña maestra.';
 
+  setLockBackground(status.lockSkins);
+
   const g = status.google;
   $('#lockGoogleText').textContent = g.linked
     ? `Sincronizada con ${g.email || 'Google Drive'}`
@@ -155,6 +157,30 @@ async function showLock() {
   $('#lockGoogleBtn').classList.toggle('hidden', g.linked);
   $('#pw1').focus();
 }
+
+// Fondo de la pantalla de bloqueo: el fondo de perfil de alguna de tus cuentas, al azar.
+function setLockBackground(skins = []) {
+  const bg = $('#lockBg');
+  bg.classList.remove('show');
+  if (!skins.length) return;
+  const skin = skins[Math.floor(Math.random() * skins.length)];
+  const url = `https://cdn.communitydragon.org/latest/champion/${Math.floor(skin / 1000)}/splash-art/skin/${skin % 1000}`;
+  const img = new Image();
+  img.src = url;
+  img.decode().then(
+    () => {
+      bg.style.backgroundImage = `url("${url}")`;
+      bg.classList.add('show');
+    },
+    () => {} // sin internet: queda el fondo de siempre
+  );
+}
+
+$('#lockScreen').addEventListener('mousemove', (e) => {
+  const x = -(e.clientX / innerWidth - 0.5) * 20;
+  const y = -(e.clientY / innerHeight - 0.5) * 12;
+  $('#lockBg').style.translate = `${x.toFixed(1)}px ${y.toFixed(1)}px`;
+});
 
 $('#lockForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -212,6 +238,7 @@ async function showApp() {
   if (status.updateReady) showUpdate(status.updateReady);
   render();
   startDetect();
+  loadGameInfo();
 }
 
 function showUpdate(version) {
@@ -239,107 +266,16 @@ function sortedAccounts() {
     // Las cuentas sin partidas registradas quedan al final.
     played: (a, b) => (b.lastPlayedAt || '').localeCompare(a.lastPlayedAt || ''),
   }[$('#sort').value];
-  return list.sort(cmp);
-}
-
-// Emblema oficial del rango (incluido en assets/ranks); un rombo de color si el tier es desconocido.
-function emblem(tier) {
-  return TIERS.includes(tier)
-    ? `<img class="emblem" src="assets/ranks/${tier.toLowerCase()}.png" alt="" />`
-    : '<span class="gem"></span>';
-}
-
-function rankRow(title, r) {
-  if (!r) {
-    return `<div class="rank"><span class="rank-q">${title}</span><span class="rank-name t-none">Sin rango</span><span></span></div>`;
-  }
-  const games = r.wins + r.losses;
-  const wr = games ? Math.round((r.wins / games) * 100) : 0;
-  return `<div class="rank">
-    <span class="rank-q">${title}</span>
-    <span class="rank-name t-${r.tier.toLowerCase()}">${emblem(r.tier)}${TIER_ES[r.tier] || r.tier}${r.division ? ' ' + r.division : ''} <span class="lp">${r.lp} LP</span></span>
-    <span class="rank-wr">${games ? `${r.wins}V ${r.losses}D · ${wr}%<div class="wrbar"><i class="${wr >= 50 ? 'good' : ''}" data-w="${wr}"></i></div>` : ''}</span>
-  </div>`;
-}
-
-function card(a) {
-  const initial = esc((a.gameName || a.username || '?')[0].toUpperCase());
-  const avatar =
-    a.iconId != null
-      ? `<img class="avatar" src="https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/profile-icons/${a.iconId}.jpg" alt="" data-initial="${initial}" />`
-      : `<div class="avatar ph">${initial}</div>`;
-  const name = a.gameName
-    ? `<div class="riotid">${esc(a.gameName)}<span class="tag">#${esc(a.tagLine)}</span></div>`
-    : `<div class="riotid unknown">Riot ID desconocido</div>`;
-  return `<article class="card" data-id="${a.id}">
-    <div class="card-head">
-      <div class="avatar-wrap">${avatar}${a.level ? `<span class="lvl">${a.level}</span>` : ''}</div>
-      <div class="who">
-        ${name}
-        <div class="meta">
-          ${a.server ? `<span class="chip">${esc(a.server)}</span>` : ''}
-          ${a.label ? `<span class="chip label">${esc(a.label)}</span>` : ''}
-          ${a.puuid ? `<span class="chip" data-tip="Vinculada con el cliente: se actualiza sola al iniciar sesión">${icon('link')}Vinculada</span>` : ''}
-        </div>
-      </div>
-      <div class="card-actions">
-        <button class="btn ghost icon-only" data-act="refresh" data-tip="Actualizar esta cuenta · datos ${a.lastSyncedAt ? 'de ' + ago(a.lastSyncedAt) : 'sin actualizar'}">${icon('refresh')}</button>
-        <button class="btn ghost icon-only" data-act="edit" data-tip="Editar">${icon('pencil')}</button>
-      </div>
-    </div>
-    <div class="ranks">
-      ${rankRow('Solo/Dúo', a.ranks?.solo)}
-      ${rankRow('Flex', a.ranks?.flex)}
-      ${a.ranks?.tft ? rankRow('TFT', a.ranks.tft) : ''}
-      ${a.ranks?.doubleUp ? rankRow('Double Up', a.ranks.doubleUp) : ''}
-    </div>
-    <div class="creds">
-      <button class="cred" data-act="copy-user">
-        <span class="cred-label">Usuario</span><span class="cred-value">${esc(a.username)}</span>${icon('copy')}
-      </button>
-      <button class="cred" data-act="copy-pass">
-        <span class="cred-label">Contraseña</span>${a.password ? '<span class="cred-value secret">••••••••</span>' : '<span class="cred-value none">Sin guardar</span>'}${icon('copy')}
-      </button>
-    </div>
-    ${a.notes ? `<p class="notes">${esc(a.notes)}</p>` : ''}
-    <div class="card-foot">
-      <span class="played${a.lastPlayedAt ? '' : ' none'}" data-tip="${a.lastPlayedAt ? new Date(a.lastPlayedAt).toLocaleString() : 'Se obtiene al detectar la cuenta en el cliente o con Actualizar rangos'}">${icon('gamepad')}${a.lastPlayedAt ? 'Jugó ' + ago(a.lastPlayedAt) : 'Sin partidas registradas'}</span>
-      <span class="spacer"></span>
-      ${playButton(a)}
-    </div>
-  </article>`;
-}
-
-// Con sesión guardada entra directo; sin ella abre el login con la contraseña copiada.
-function playButton(a) {
-  const saved = data.sessions?.[a.id];
-  return saved
-    ? `<button class="btn primary sm" data-act="play" data-tip="Cierra el cliente y abre el LoL con esta cuenta · sesión guardada ${ago(saved)}">${icon('play')}Jugar</button>`
-    : `<button class="btn subtle sm" data-act="play" data-tip="Abre el login del cliente con la contraseña copiada. Marca &quot;Mantener sesión iniciada&quot; y la próxima vez entras con un clic.">${icon('logIn')}Iniciar sesión</button>`;
+  // Las favoritas siempre arriba.
+  return list.sort((a, b) => !!b.favorite - !!a.favorite || cmp(a, b));
 }
 
 function render() {
-  const list = sortedAccounts();
-  $('#grid').innerHTML = list.map(card).join('');
-  // El CSP no permite style inline: el ancho de las barras de winrate se asigna aquí.
-  document.querySelectorAll('.wrbar i[data-w]').forEach((i) => (i.style.width = i.dataset.w + '%'));
-  $('#count').textContent = data.accounts.length;
-  $('#empty').classList.toggle('hidden', data.accounts.length > 0);
-  $('#noResults').classList.toggle('hidden', !(data.accounts.length && !list.length));
+  const has = data.accounts.length > 0;
+  $('#emptyView').classList.toggle('hidden', has);
+  $('#stage').classList.toggle('hidden', !has);
+  if (has) renderCarousel(sortedAccounts());
 }
-
-// Si el ícono no carga (sin internet, ícono nuevo), mostramos la inicial.
-$('#grid').addEventListener(
-  'error',
-  (e) => {
-    if (!e.target.matches('img.avatar')) return;
-    const ph = document.createElement('div');
-    ph.className = 'avatar ph';
-    ph.textContent = e.target.dataset.initial || '?';
-    e.target.replaceWith(ph);
-  },
-  true
-);
 
 $('#search').addEventListener('input', render);
 // El orden elegido se recuerda en este PC.
@@ -362,41 +298,6 @@ function flashCopied(btn) {
     btn.querySelector('.ic').outerHTML = icon('copy');
   }, 1400);
 }
-
-$('#grid').addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-act]');
-  if (!btn) return;
-  const id = btn.closest('.card').dataset.id;
-  const acc = data.accounts.find((a) => a.id === id);
-  switch (btn.dataset.act) {
-    case 'edit':
-      openAccount(acc);
-      break;
-    case 'copy-user':
-      await run(null, async () => {
-        await window.api.copy(id, 'username');
-        flashCopied(btn);
-      });
-      break;
-    case 'copy-pass':
-      if (!acc.password) {
-        toast('Esta cuenta no tiene contraseña guardada: agrégala en Editar', 'error');
-        break;
-      }
-      await run(null, async () => {
-        await window.api.copy(id, 'password');
-        flashCopied(btn);
-        toast('Contraseña copiada · se borra del portapapeles en 30 s', 'ok');
-      });
-      break;
-    case 'refresh':
-      refreshRanks([id], btn);
-      break;
-    case 'play':
-      play(acc, btn);
-      break;
-  }
-});
 
 // ---------- diálogos ----------
 
@@ -855,6 +756,7 @@ function renderTools() {
   document.querySelectorAll('#autoAcceptDelay button').forEach((b) =>
     b.classList.toggle('active', Number(b.dataset.delay) === tools.autoAcceptDelay)
   );
+  $('#offlineToggle').checked = !!tools.appearOffline;
   const st = $('#clientStatus');
   st.classList.toggle('on', tools.autoAccept && tools.clientConnected === true);
   st.lastElementChild.textContent = !tools.autoAccept
@@ -880,6 +782,11 @@ async function setTools(patch) {
 }
 
 $('#autoChip').addEventListener('click', openTools);
+$('#offlineToggle').addEventListener('change', async (e) => {
+  await setTools({ appearOffline: e.target.checked });
+  toast(e.target.checked ? 'Apareces desconectado en el LoL' : 'Vuelves a aparecer en línea', 'ok');
+});
+
 function renderWindowSettings() {
   $('#closeToTray').checked = tools.closeToTray;
   $('#openAtLogin').checked = tools.openAtLogin;

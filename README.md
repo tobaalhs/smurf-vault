@@ -9,10 +9,16 @@ Bóveda cifrada para tus cuentas de Riot (LoL), con respaldo en tu Google Drive.
 - ▶️ **Cambiar de cuenta con un clic**: inicia sesión una vez marcando *Mantener sesión iniciada* y Smurf Vault
   guarda esa sesión del Riot Client (cifrada, solo en este PC, nunca en Drive). Después, **Jugar** cierra el
   cliente, restaura la sesión de esa cuenta y abre el LoL, sin escribir la contraseña.
+- 🎡 **Carrusel de cuentas** estilo osu!: la rueda de cuentas a la izquierda y la elegida a la derecha, con el
+  splash de su fondo de perfil, el marco de su rango y sonidos suaves (se pueden silenciar). Favoritas siempre arriba.
+- 📈 **Progreso de LP** (gráfico por cola, con cada subida y bajada) y **maestrías** de cada cuenta.
+- 🖼️ Pantalla de bloqueo con el fondo de perfil de alguna de tus cuentas.
+- 📜 **Historial de partidas** de LoL y TFT (las últimas 20 de cada uno), que se actualiza al terminar cada partida.
+  Se guarda solo en este PC, cifrado; a Drive va solo lo importante.
 - 🎮 **Detectar cliente**: con el LoL abierto, lee nick, tag, nivel, ícono, rangos de LoL y TFT y la última partida de la cuenta en la que iniciaste sesión.
 - 🕒 **Última partida** de cada cuenta (LoL o TFT), para ordenarlas por las que usas más.
 - 📈 **Actualizar rangos** de todas las cuentas sin abrir el juego (API oficial de Riot, necesita una API key gratuita).
-- ⚡ **Autoaceptar partidas** (opcional, en Herramientas).
+- ⚡ **Herramientas** opcionales: autoaceptar partidas y aparecer desconectado en el chat del LoL.
 - 🪟 **Bandeja del sistema**: al cerrar sigue en segundo plano (configurable) y puede abrirse al iniciar Windows.
 - 📋 Copiar usuario y contraseña con un clic; el portapapeles se limpia a los 30 s.
 - 📥 **Importar** tu txt viejo (`usuario:contraseña` por línea).
@@ -44,7 +50,8 @@ npm run dist     # genera el instalador y la versión portable en dist/
 
 - `main.js`: proceso principal (bóveda en memoria, IPC, sincronización).
 - `src/vault.js`: cifrado · `src/drive.js`: OAuth de Google + Drive `appDataFolder`.
-- `src/switcher.js`: guardar/restaurar la sesión del Riot Client · `src/lcu.js`: API local del cliente de LoL · `src/autoaccept.js`: autoaceptar.
+- `src/switcher.js`: guardar/restaurar la sesión del Riot Client · `src/history.js` + `src/matches.js`: historial ·
+  `src/lcu.js`: API local del cliente de LoL · `src/autoaccept.js`: autoaceptar.
 - `src/riot.js`: API oficial de Riot · `renderer/`: interfaz.
 
 ## Publicar una versión

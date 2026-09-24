@@ -5,6 +5,8 @@ const https = require('https');
 const fs = require('fs');
 const pathLib = require('path');
 const { execFile } = require('child_process');
+const { fromLolGame, fromTftGame, KEEP } = require('./matches');
+const { masteryFrom } = require('./mastery');
 
 // Carpetas donde buscar el lockfile del cliente. Si el cliente está instalado en otra parte,
 // la carpeta se aprende al encontrar el proceso.
@@ -60,7 +62,8 @@ async function connection({ force = false } = {}) {
   return conn;
 }
 
-function rawRequest({ port, password }, method, path) {
+function rawRequest({ port, password }, method, path, body) {
+  const payload = body === undefined ? null : JSON.stringify(body);
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
@@ -73,6 +76,7 @@ function rawRequest({ port, password }, method, path) {
         headers: {
           Authorization: 'Basic ' + Buffer.from(`riot:${password}`).toString('base64'),
           Accept: 'application/json',
+          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
         },
       },
       (res) => {
@@ -89,7 +93,7 @@ function rawRequest({ port, password }, method, path) {
     );
     req.on('timeout', () => req.destroy(new Error('LCU no responde')));
     req.on('error', reject);
-    req.end();
+    req.end(payload ?? undefined);
   });
 }
 
@@ -97,11 +101,11 @@ function rawRequest({ port, password }, method, path) {
  * Hace una petición al cliente. Devuelve { status, json }, o null si el cliente no está abierto.
  * Si la conexión guardada dejó de servir (cliente cerrado o reiniciado), se descarta.
  */
-async function request(method, path, opts) {
+async function request(method, path, opts, body) {
   const c = await connection(opts);
   if (!c) return null;
   try {
-    const res = await rawRequest(c, method, path);
+    const res = await rawRequest(c, method, path, body);
     if (res.status === 401) throw new Error('token viejo');
     return res;
   } catch {
@@ -130,23 +134,39 @@ function rankFrom(q) {
   };
 }
 
+/**
+ * Marco del ícono que eligió la cuenta: { type: 'level', theme: 1..21 } para los marcos de nivel,
+ * { type: 'ranked' } para las alas de rango, o undefined si el cliente no respondió.
+ */
+function crestFrom(regalia) {
+  if (!regalia?.crestType) return undefined;
+  const theme = Number(regalia.selectedPrestigeCrest);
+  if (regalia.crestType === 'prestige' && theme >= 1 && theme <= 21) return { type: 'level', theme };
+  return { type: 'ranked' };
+}
+
 /** Datos de la cuenta abierta en el cliente, o null si no hay cliente o sesión. */
 async function currentAccount({ force = false } = {}) {
   const summoner = await get('/lol-summoner/v1/current-summoner', { force });
   if (!summoner?.puuid) return null;
 
-  const [session, ranked, region, history, tftHistory] = await Promise.all([
+  const [session, ranked, region, history, tftHistory, profile, regalia, mastery, masteryScore] = await Promise.all([
     get('/lol-login/v1/session'), // trae el usuario de login (sin contraseña)
     get('/lol-ranked/v1/current-ranked-stats'),
     get('/riotclient/region-locale'),
-    get('/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=1'),
-    get(`/lol-match-history/v1/products/tft/${summoner.puuid}/matches?begin=0&count=1`),
+    get(`/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=${KEEP}`),
+    get(`/lol-match-history/v1/products/tft/${summoner.puuid}/matches?begin=0&count=${KEEP}`),
+    get('/lol-summoner/v1/current-summoner/summoner-profile'), // skin elegida de fondo del perfil
+    get('/lol-regalia/v2/current-summoner/regalia'), // marco elegido: de nivel o de rango
+    get('/lol-champion-mastery/v1/local-player/champion-mastery'),
+    get('/lol-champion-mastery/v1/local-player/champion-mastery-score'),
   ]);
+  const matches = [
+    ...(history?.games?.games || []).map(fromLolGame),
+    ...(tftHistory?.games || []).map((g) => fromTftGame(g, summoner.puuid)),
+  ].filter(Boolean);
   // Última partida entre LoL y TFT.
-  const last = history?.games?.games?.[0];
-  const lolMs = last?.gameCreation ? last.gameCreation + (last.gameDuration || 0) * 1000 : 0;
-  const tftMs = Number(tftHistory?.games?.[0]?.json?.game_datetime) || 0;
-  const lastMs = Math.max(lolMs, tftMs);
+  const lastMs = Math.max(0, ...matches.map((m) => Date.parse(m.at)));
 
   return {
     // Solo se usa para reconocer la cuenta guardada; no se guarda.
@@ -158,6 +178,11 @@ async function currentAccount({ force = false } = {}) {
     iconId: summoner.profileIconId,
     server: (region?.region || '').toUpperCase(),
     lastPlayedAt: lastMs ? new Date(lastMs).toISOString() : null,
+    // undefined si el cliente no respondió: así no se borra lo que ya estaba guardado.
+    backgroundSkinId: Number(profile?.backgroundSkinId) || undefined,
+    matches: history || tftHistory ? matches : undefined,
+    crest: crestFrom(regalia),
+    mastery: masteryFrom(mastery, masteryScore),
     ranks: {
       solo: rankFrom(ranked?.queueMap?.RANKED_SOLO_5x5),
       flex: rankFrom(ranked?.queueMap?.RANKED_FLEX_SR),

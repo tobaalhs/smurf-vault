@@ -8,7 +8,10 @@ const lcu = require('./src/lcu');
 const riot = require('./src/riot');
 const { AutoAccept } = require('./src/autoaccept');
 const { GameflowWatcher } = require('./src/gameflow');
+const { OfflineMode } = require('./src/offline');
 const switcher = require('./src/switcher');
+const { LocalHistory, LpLog } = require('./src/history');
+const { GameData } = require('./src/gamedata');
 const { autoUpdater } = require('electron-updater');
 
 const userData = app.getPath('userData');
@@ -19,12 +22,23 @@ const CONFIG_PATH = path.join(userData, 'config.json');
 // Sesiones del Riot Client por cuenta ("Mantener sesión iniciada"). Solo viven en este PC: no se
 // suben a Drive. Van cifradas con la clave de la bóveda, así que solo se usan con la bóveda abierta.
 const SESSIONS_DIR = path.join(userData, 'sessions');
+// Historial de partidas: solo en este PC, cifrado con la clave de la bóveda (no se sube a Drive).
+const history = new LocalHistory(path.join(userData, 'history.dat'));
+const lpLog = new LpLog(path.join(userData, 'lp.dat'));
 
 let win;
 let drive;
 let autoAccept;
-let config = { autoAccept: false, autoAcceptDelay: 0, closeToTray: true, trayHintShown: false };
+let config = {
+  autoAccept: false,
+  autoAcceptDelay: 0,
+  closeToTray: true,
+  trayHintShown: false,
+  appearOffline: false, // herramienta: aparecer desconectado en el chat del LoL
+};
+const offlineMode = new OfflineMode();
 let tray = null;
+let gameData = null;
 let quitting = false; // true cuando se sale de verdad (menú de la bandeja, actualización)
 
 // Una sola instancia: si la abres de nuevo estando en la bandeja, se muestra la que ya existe.
@@ -80,6 +94,7 @@ function saveConfig(patch) {
   config = { ...config, ...patch };
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
+  offlineMode.configure({ enabled: config.appearOffline });
   syncTray();
   return toolsStatus();
 }
@@ -100,6 +115,8 @@ function quitApp() {
 
 function lockVault() {
   session = null;
+  history.clear();
+  lpLog.clear();
   win?.webContents.send('locked');
 }
 
@@ -191,8 +208,34 @@ function persist() {
   queueUpload(envelope);
 }
 
+/** Lo que ve la interfaz: la bóveda más el historial local de cada cuenta y las sesiones guardadas. */
 function publicData() {
-  return session ? { ...session.data, sessions: sessionIndex() } : null;
+  if (!session) return null;
+  const accounts = session.data.accounts.map((a) => ({ ...a, matches: history.get(a.id), lp: lpLog.get(a.id) }));
+  return { ...session.data, accounts, sessions: sessionIndex() };
+}
+
+function saveHistory() {
+  history.save(session.key, session.salt);
+}
+
+function saveLp() {
+  lpLog.save(session.key, session.salt);
+}
+
+/**
+ * Splash de fondo de las cuentas, para la pantalla de bloqueo. Se guarda aparte y sin cifrar porque
+ * se muestra antes de desbloquear; son solo números de skin, no dicen nada de las cuentas.
+ */
+function rememberLockSplashes() {
+  const skins = [...new Set(session.data.accounts.map((a) => a.backgroundSkinId).filter(Boolean))];
+  if (JSON.stringify(skins) !== JSON.stringify(config.lockSkins || [])) saveConfig({ lockSkins: skins });
+}
+
+// Firma de la bóveda sin la fecha de "datos actualizados", que cambia en cada detección:
+// si solo cambió eso, no vale la pena volver a subir la bóveda a Drive.
+function vaultSignature() {
+  return JSON.stringify(session.data, (k, v) => (k === 'lastSyncedAt' ? undefined : v));
 }
 
 // ---------- sesiones del Riot Client (cambio de cuenta) ----------
@@ -284,8 +327,12 @@ function findAccount(id) {
 }
 
 function applySnapshot(acc, snap) {
-  // Si cambió la cuenta de Riot vinculada, el PUUID de la API anterior ya no sirve.
-  if (snap.puuid !== acc.puuid) delete acc.apiPuuid;
+  // Si cambió la cuenta de Riot vinculada, el PUUID de la API anterior y su historial ya no sirven.
+  if (snap.puuid !== acc.puuid) {
+    delete acc.apiPuuid;
+    if (acc.puuid && history.remove(acc.id)) saveHistory();
+    if (acc.puuid && lpLog.remove(acc.id)) saveLp();
+  }
   if (snap.apiPuuid) acc.apiPuuid = snap.apiPuuid;
   Object.assign(acc, {
     puuid: snap.puuid,
@@ -303,6 +350,11 @@ function applySnapshot(acc, snap) {
   if (snap.server) acc.server = snap.server;
   // Nos quedamos con la partida más reciente que conozcamos (cliente o API pueden venir sin dato).
   if (snap.lastPlayedAt && !(acc.lastPlayedAt > snap.lastPlayedAt)) acc.lastPlayedAt = snap.lastPlayedAt;
+  if (snap.backgroundSkinId) acc.backgroundSkinId = snap.backgroundSkinId;
+  if (snap.crest) acc.crest = snap.crest;
+  if (snap.mastery) acc.mastery = snap.mastery;
+  if (lpLog.record(acc.id, acc.ranks)) saveLp();
+  if (snap.matches && history.add(acc.id, snap.matches)) saveHistory();
 }
 
 /**
@@ -341,10 +393,15 @@ async function detectClient({ force = false } = {}) {
     const match = findDetectedAccount(snap);
     if (match) {
       autoLinked = match.acc.puuid !== snap.puuid;
+      const before = vaultSignature();
       // Una misma cuenta de Riot solo puede estar vinculada a una entrada.
       for (const a of session.data.accounts) if (a.puuid === snap.puuid && a !== match.acc) delete a.puuid;
       applySnapshot(match.acc, snap);
-      persist();
+      // Con el cliente abierto esto corre cada 30 s: solo se guarda y sube si cambió algo de verdad.
+      if (vaultSignature() !== before) {
+        persist();
+        rememberLockSplashes();
+      }
       matchedId = match.acc.id;
       try {
         captureSession(match.acc);
@@ -409,6 +466,7 @@ function registerIpc() {
     credentialsPath: credentialsPath(),
     version: app.getVersion(),
     updateReady,
+    lockSkins: config.lockSkins || [], // fondos para la pantalla de bloqueo
   }));
 
   handle('app:installUpdate', () => {
@@ -444,6 +502,8 @@ function registerIpc() {
     }
     const { key, salt } = await createKey(password);
     session = { key, salt, data: emptyVault() };
+    history.clear();
+    lpLog.clear();
     persist();
     return publicData();
   });
@@ -465,6 +525,27 @@ function registerIpc() {
     const newest = !local ? remote : !remote ? local : remote.updatedAt > local.updatedAt ? remote : local;
     const { key, salt, data } = await decryptEnvelope(newest, password);
     session = { key, salt, data: { ...emptyVault(), ...data } };
+    history.load(key);
+    lpLog.load(key);
+    // Primer punto del gráfico de LP para las cuentas que todavía no tienen: su rango guardado.
+    let lpChanged = false;
+    for (const a of session.data.accounts) {
+      if (!lpLog.get(a.id)) lpChanged = lpLog.record(a.id, a.ranks, a.lastSyncedAt || a.updatedAt) || lpChanged;
+    }
+    if (lpChanged) saveLp();
+    rememberLockSplashes();
+    // Versiones anteriores guardaban el historial dentro de la bóveda: se pasa al archivo local.
+    let migrated = false;
+    for (const a of session.data.accounts) {
+      if (!a.matches) continue;
+      history.add(a.id, a.matches);
+      delete a.matches;
+      migrated = true;
+    }
+    if (migrated) {
+      saveHistory();
+      persist();
+    }
 
     if (newest === remote && remote.updatedAt !== local?.updatedAt) writeLocal(remote);
     if (newest === local && remote?.updatedAt !== local.updatedAt) queueUpload(local);
@@ -481,6 +562,8 @@ function registerIpc() {
 
   handle('vault:lock', () => {
     session = null;
+    history.clear();
+    lpLog.clear();
     return true;
   });
 
@@ -502,8 +585,10 @@ function registerIpc() {
       ('gameName' in input && norm(input.gameName) !== norm(acc.gameName)) ||
       ('tagLine' in input && norm(input.tagLine) !== norm(acc.tagLine));
     if (riotIdChanged && acc.puuid) {
-      for (const f of ['puuid', 'apiPuuid', 'level', 'iconId', 'lastPlayedAt', 'lastSyncedAt']) delete acc[f];
+      for (const f of ['puuid', 'apiPuuid', 'level', 'iconId', 'lastPlayedAt', 'lastSyncedAt', 'backgroundSkinId', 'crest', 'mastery']) delete acc[f];
       acc.ranks = { solo: null, flex: null };
+      if (history.remove(acc.id)) saveHistory();
+      if (lpLog.remove(acc.id)) saveLp();
     }
     for (const f of fields) if (f in input) acc[f] = (input[f] ?? '').toString().trim();
     acc.updatedAt = now;
@@ -533,10 +618,23 @@ function registerIpc() {
     return publicData();
   });
 
+  handle('accounts:favorite', (id, favorite) => {
+    requireSession();
+    const acc = findAccount(id);
+    if (favorite) acc.favorite = true;
+    else delete acc.favorite;
+    persist();
+    return publicData();
+  });
+
+  handle('game:data', () => gameData.get());
+
   handle('accounts:delete', (id) => {
     requireSession();
     session.data.accounts = session.data.accounts.filter((a) => a.id !== id);
     deleteSession(id);
+    if (history.remove(id)) saveHistory();
+    if (lpLog.remove(id)) saveLp();
     persist();
     return publicData();
   });
@@ -595,6 +693,7 @@ function registerIpc() {
     if ('autoAccept' in patch) allowed.autoAccept = !!patch.autoAccept;
     if ('autoAcceptDelay' in patch) allowed.autoAcceptDelay = Number(patch.autoAcceptDelay) || 0;
     if ('closeToTray' in patch) allowed.closeToTray = !!patch.closeToTray;
+    if ('appearOffline' in patch) allowed.appearOffline = !!patch.appearOffline;
     if ('openAtLogin' in patch) setOpenAtLogin(!!patch.openAtLogin);
     return saveConfig(allowed);
   });
@@ -698,11 +797,13 @@ app.whenReady().then(() => {
   drive = new Drive({ credentialsPath: credentialsPath(), tokenPath: path.join(userData, 'google-token.bin') });
   app.setAppUserModelId('Smurf Vault'); // necesario para las notificaciones en Windows
   loadConfig();
+  gameData = new GameData(path.join(userData, 'gamedata.json'));
   autoAccept = new AutoAccept({
     onAccepted: onMatchAccepted,
     onStatus: (s) => win?.webContents.send('tools', { event: 'status', ...s }),
   });
   autoAccept.configure({ enabled: config.autoAccept, delay: config.autoAcceptDelay });
+  offlineMode.configure({ enabled: config.appearOffline });
   registerIpc();
   createWindow();
   syncTray();

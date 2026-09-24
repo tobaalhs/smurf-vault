@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'self'; img-src 'self' data: https://raw.communitydragon.org; style-src 'self'; script-src 'self'"
+    content="default-src 'self'; img-src 'self' data: https://raw.communitydragon.org https://cdn.communitydragon.org https://ddragon.leagueoflegends.com; style-src 'self'; script-src 'self'"
   />
   <title>Smurf Vault</title>
   <link rel="stylesheet" href="styles.css" />
@@ -12,6 +12,7 @@
 <body>
   <!-- ============ Pantalla de bloqueo ============ -->
   <section id="lockScreen" class="lock hidden">
+    <div class="lock-bg" id="lockBg"></div>
     <div class="lock-drag"></div>
     <div class="lock-card">
       <img class="lock-logo" src="assets/logo.png" alt="" />
@@ -95,30 +96,11 @@
       </div>
     </header>
 
-    <div class="subbar">
-      <h2>Mis cuentas <span id="count" class="count"></span></h2>
-      <div class="spacer"></div>
-      <div class="search">
-        <i data-icon="search"></i>
-        <input id="search" type="search" placeholder="Buscar nick, usuario, nota…" />
-        <kbd>Ctrl F</kbd>
-      </div>
-      <div class="select-wrap">
-        <select id="sort" aria-label="Ordenar">
-          <option value="rank">Mayor rango</option>
-          <option value="level">Mayor nivel</option>
-          <option value="name">Nombre A-Z</option>
-          <option value="played">Última partida</option>
-        </select>
-      </div>
-    </div>
-
     <div id="guideBanner" class="banner guide hidden"></div>
     <div id="detectBanner" class="banner hidden"></div>
 
-    <main>
-      <div id="grid" class="grid"></div>
-      <div id="empty" class="empty hidden">
+    <main id="emptyView" class="hidden">
+      <div id="empty" class="empty">
         <img src="assets/logo.png" alt="" />
         <h3>Tu bóveda está vacía</h3>
         <p>Agrega tu primera cuenta iniciando sesión en el cliente, o importa la lista que tenías en un txt.</p>
@@ -127,8 +109,40 @@
           <button class="btn subtle" id="emptyImport"><i data-icon="upload"></i>Importar txt</button>
         </div>
       </div>
-      <div id="noResults" class="empty hidden"><p>Ninguna cuenta coincide con la búsqueda.</p></div>
     </main>
+
+    <!-- Vista carrusel: rueda de cuentas a la izquierda, detalle a la derecha, splash de fondo -->
+    <section id="stage" class="stage hidden">
+      <div class="stage-bg" id="stageBg"><div></div><div></div></div>
+      <aside class="side">
+        <div class="side-head" id="sideHead">
+          <div id="listTools" class="list-tools">
+            <div class="search">
+              <i data-icon="search"></i>
+              <input id="search" type="search" placeholder="Buscar nick, usuario, nota…" />
+              <kbd>Ctrl F</kbd>
+            </div>
+            <div class="select-wrap">
+              <select id="sort" aria-label="Ordenar">
+                <option value="rank">Mayor rango</option>
+                <option value="level">Mayor nivel</option>
+                <option value="name">Nombre A-Z</option>
+                <option value="played">Última partida</option>
+              </select>
+            </div>
+            <button type="button" id="soundBtn" class="btn subtle icon-only"></button>
+          </div>
+        </div>
+        <div class="side-count"><span id="wheelCount"></span><span id="wheelPos"></span></div>
+        <div class="wheel" id="wheel"></div>
+        <div class="side-keys">
+          <span><kbd>↑</kbd> <kbd>↓</kbd> elegir</span>
+          <span><kbd>Enter</kbd> jugar</span>
+          <span>escribe para buscar</span>
+        </div>
+      </aside>
+      <div class="detail" id="detail"></div>
+    </section>
   </section>
 
   <!-- ============ Diálogo: cuenta ============ -->
@@ -276,12 +290,24 @@
               <button type="button" data-delay="6">6 s</button>
             </div>
           </div>
-          <p class="hint small-note">Con espera alcanzas a rechazar la partida tú si no quieres jugarla.</p>
+          <p class="hint small-note">Con espera alcanzas a rechazar la partida tú si no quieres jugarla. Solo hace lo mismo que apretar "Aceptar".</p>
           <div class="client-status" id="clientStatus"><span class="dot"></span><span></span></div>
         </div>
       </section>
 
-      <p class="hint center-note">Solo hace lo mismo que apretar "Aceptar": no toca nada dentro de la partida.</p>
+      <section class="tool">
+        <div class="tool-head">
+          <div class="tool-icon"><i data-icon="eyeOff"></i></div>
+          <div class="tool-text">
+            <h3>Aparecer desconectado</h3>
+            <p class="hint">Tus amigos te ven desconectado en el LoL aunque tengas el cliente abierto. Se mantiene al cambiar de cuenta, mientras Smurf Vault esté abierto. Al apagarlo vuelves a quedar en línea.</p>
+          </div>
+          <label class="switch" aria-label="Aparecer desconectado">
+            <input type="checkbox" id="offlineToggle" />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </div>
+      </section>
     </form>
   </dialog>
 
@@ -366,6 +392,8 @@
     <button type="button" id="winClose" class="close" aria-label="Cerrar"><i data-icon="x"></i></button>
   </div>
   <script src="icons.js"></script>
+  <script src="sounds.js"></script>
   <script src="renderer.js"></script>
+  <script src="carousel.js"></script>
 </body>
 </html>
