@@ -131,7 +131,8 @@ async function currentAccount({ force = false } = {}) {
   const summoner = await get('/lol-summoner/v1/current-summoner', { force });
   if (!summoner?.puuid) return null;
 
-  const [ranked, region, history, tftHistory] = await Promise.all([
+  const [session, ranked, region, history, tftHistory] = await Promise.all([
+    get('/lol-login/v1/session'), // trae el usuario de login (sin contraseña)
     get('/lol-ranked/v1/current-ranked-stats'),
     get('/riotclient/region-locale'),
     get('/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=0&endIndex=1'),
@@ -144,6 +145,8 @@ async function currentAccount({ force = false } = {}) {
   const lastMs = Math.max(lolMs, tftMs);
 
   return {
+    // Solo se usa para reconocer la cuenta guardada; no se guarda.
+    username: typeof session?.username === 'string' ? session.username : '',
     puuid: summoner.puuid,
     gameName: summoner.gameName || summoner.displayName || '',
     tagLine: summoner.tagLine || '',

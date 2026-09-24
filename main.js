@@ -135,6 +135,31 @@ function applySnapshot(acc, snap) {
   if (snap.lastPlayedAt && !(acc.lastPlayedAt > snap.lastPlayedAt)) acc.lastPlayedAt = snap.lastPlayedAt;
 }
 
+/**
+ * Busca entre las cuentas guardadas la que está abierta en el cliente:
+ * 1) por PUUID (ya vinculada), 2) por usuario de login, 3) por Riot ID.
+ * En 2 y 3 solo cuenta si hay exactamente una coincidencia, para no vincular mal.
+ */
+function findDetectedAccount(snap) {
+  const accounts = session.data.accounts;
+  const byPuuid = accounts.find((a) => a.puuid === snap.puuid || a.apiPuuid === snap.puuid);
+  if (byPuuid) return { acc: byPuuid };
+  const norm = (s) => (s || '').trim().toLowerCase();
+  const unique = (list) => (list.length === 1 ? { acc: list[0] } : null);
+  if (snap.username) {
+    const found = unique(accounts.filter((a) => norm(a.username) === norm(snap.username)));
+    if (found) return found;
+  }
+  if (snap.gameName && snap.tagLine) {
+    return unique(
+      accounts.filter(
+        (a) => !a.puuid && norm(a.gameName) === norm(snap.gameName) && norm(a.tagLine) === norm(snap.tagLine)
+      )
+    );
+  }
+  return null;
+}
+
 function requireSession() {
   if (!session) throw new Error('La bóveda está bloqueada');
 }
@@ -341,15 +366,19 @@ function registerIpc() {
     if (!snap) return null;
     snap.server = riot.serverFromClient(snap.server);
     let matchedId = null;
+    let autoLinked = false;
     if (session) {
-      const acc = session.data.accounts.find((a) => a.puuid === snap.puuid);
-      if (acc) {
-        applySnapshot(acc, snap);
+      const match = findDetectedAccount(snap);
+      if (match) {
+        autoLinked = match.acc.puuid !== snap.puuid;
+        // Una misma cuenta de Riot solo puede estar vinculada a una entrada.
+        for (const a of session.data.accounts) if (a.puuid === snap.puuid && a !== match.acc) delete a.puuid;
+        applySnapshot(match.acc, snap);
         persist();
-        matchedId = acc.id;
+        matchedId = match.acc.id;
       }
     }
-    return { snapshot: snap, matchedId, data: publicData() };
+    return { snapshot: snap, matchedId, autoLinked, data: publicData() };
   });
 
   handle('lcu:link', (id, snap) => {

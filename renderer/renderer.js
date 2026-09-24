@@ -504,11 +504,14 @@ async function detect({ manual = false } = {}) {
     if (manual) toast('No encontré el cliente de LoL abierto con una sesión iniciada', 'error');
     return;
   }
-  const { snapshot, matchedId } = res;
+  const { snapshot, matchedId, autoLinked } = res;
   data = res.data;
   render();
   if (matchedId) {
-    if (manual || !seenPuuids.has(snapshot.puuid)) toast(`${snapshot.gameName}#${snapshot.tagLine} actualizada desde el cliente`, 'ok');
+    const name = `${snapshot.gameName}#${snapshot.tagLine}`;
+    const acc = data.accounts.find((a) => a.id === matchedId);
+    if (autoLinked) toast(`${name} reconocida y vinculada a "${acc?.label || acc?.username}"`, 'ok');
+    else if (manual || !seenPuuids.has(snapshot.puuid)) toast(`${name} actualizada desde el cliente`, 'ok');
     seenPuuids.add(snapshot.puuid);
     hideBanner();
     return;
