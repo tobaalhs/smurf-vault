@@ -230,6 +230,16 @@ function registerIpc() {
       acc = { id: crypto.randomUUID(), createdAt: now, ranks: { solo: null, flex: null } };
       session.data.accounts.push(acc);
     }
+    // Si cambiaron el Riot ID a mano, es otra cuenta: olvidamos el PUUID y los datos de la anterior
+    // para que "Actualizar rangos" la busque por el nombre nuevo.
+    const norm = (s) => (s ?? '').toString().trim().toLowerCase();
+    const riotIdChanged =
+      ('gameName' in input && norm(input.gameName) !== norm(acc.gameName)) ||
+      ('tagLine' in input && norm(input.tagLine) !== norm(acc.tagLine));
+    if (riotIdChanged && acc.puuid) {
+      for (const f of ['puuid', 'apiPuuid', 'level', 'iconId', 'lastPlayedAt', 'lastSyncedAt']) delete acc[f];
+      acc.ranks = { solo: null, flex: null };
+    }
     for (const f of fields) if (f in input) acc[f] = (input[f] ?? '').toString().trim();
     acc.updatedAt = now;
     persist();

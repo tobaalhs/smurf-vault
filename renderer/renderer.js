@@ -388,6 +388,9 @@ $('#accountForm').addEventListener('submit', async (e) => {
   const acc = Object.fromEntries(new FormData(f));
   // Si pegaron "Nombre#TAG" en el campo de nombre, lo separamos.
   if (acc.gameName.includes('#')) [acc.gameName, acc.tagLine] = acc.gameName.split('#');
+  const before = acc.id && data.accounts.find((a) => a.id === acc.id);
+  const riotIdChanged =
+    before && riotId(before).toLowerCase() !== riotId({ gameName: acc.gameName.trim(), tagLine: acc.tagLine.trim() }).toLowerCase();
   await run(f.querySelector('[type=submit]'), async () => {
     data = await window.api.saveAccount(acc);
     const snap = pendingSnapshot;
@@ -398,7 +401,13 @@ $('#accountForm').addEventListener('submit', async (e) => {
     }
     $('#accountDialog').close();
     render();
-    toast(acc.id ? 'Cambios guardados' : 'Cuenta agregada', 'ok');
+    // Riot ID corregido: buscamos al tiro la cuenta nueva si hay API key.
+    if (riotIdChanged && acc.gameName.trim() && acc.tagLine.trim() && data.settings.riotApiKey) {
+      toast('Riot ID cambiado, buscando la cuenta…');
+      refreshRanks([acc.id]);
+    } else {
+      toast(acc.id ? 'Cambios guardados' : 'Cuenta agregada', 'ok');
+    }
   });
 });
 
