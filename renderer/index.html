@@ -355,6 +355,15 @@
       </section>
 
       <section class="setting">
+        <div class="setting-head">
+          <i data-icon="palette"></i><h3>Colores</h3>
+          <button type="button" id="themeReset" class="btn subtle sm">Restablecer colores</button>
+        </div>
+        <p class="hint">Cambia los colores a tu gusto: se ven al tiro y se guardan en este PC.</p>
+        <div class="theme-grid" id="themeGrid"></div>
+      </section>
+
+      <section class="setting">
         <div class="setting-head"><i data-icon="key"></i><h3>API key de Riot</h3></div>
         <p class="hint">Se usa para "Actualizar rangos". Queda guardada cifrada dentro de tu bóveda.</p>
         <input id="riotKey" type="password" placeholder="RGAPI-…" autocomplete="off" />
@@ -393,6 +402,7 @@
   </div>
   <script src="icons.js"></script>
   <script src="sounds.js"></script>
+  <script src="theme.js"></script>
   <script src="renderer.js"></script>
   <script src="carousel.js"></script>
 </body>

@@ -119,6 +119,7 @@ document.addEventListener('click', (e) => {
 
 async function showLock() {
   status = await window.api.status();
+  loadTheme(status.theme);
   stopDetect();
   data = null;
   closeMenu();
@@ -654,6 +655,7 @@ $('#riotForm').addEventListener('submit', async (e) => {
 
 async function openSettings() {
   status = await window.api.status();
+  renderThemeGrid();
   tools = await window.api.getTools();
   renderWindowSettings();
   renderGoogle();

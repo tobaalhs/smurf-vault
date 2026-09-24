@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('api', {
   onSync: (cb) => ipcRenderer.on('sync', (_e, s) => cb(s)),
   onData: (cb) => ipcRenderer.on('data', (_e, d) => cb(d)),
   onLocked: (cb) => ipcRenderer.on('locked', () => cb()),
+  setTheme: (theme) => call('theme:set', theme),
   winMinimize: () => call('win:minimize'),
   winToggleMaximize: () => call('win:toggleMaximize'),
   winClose: () => call('win:close'),

@@ -35,6 +35,7 @@ let config = {
   closeToTray: true,
   trayHintShown: false,
   appearOffline: false, // herramienta: aparecer desconectado en el chat del LoL
+  theme: {}, // colores que el usuario cambió (el resto son los predeterminados)
 };
 const offlineMode = new OfflineMode();
 let tray = null;
@@ -467,6 +468,7 @@ function registerIpc() {
     version: app.getVersion(),
     updateReady,
     lockSkins: config.lockSkins || [], // fondos para la pantalla de bloqueo
+    theme: config.theme || {},
   }));
 
   handle('app:installUpdate', () => {
@@ -475,6 +477,15 @@ function registerIpc() {
       autoUpdater.quitAndInstall();
     }
     return true;
+  });
+
+  // Colores personalizados: solo nombres conocidos y colores #rrggbb.
+  const THEME_KEYS = ['bg', 'surface', 'text', 'muted', 'gold', 'cyan', 'ok', 'danger', 'win', 'loss'];
+  handle('theme:set', (theme) => {
+    const clean = {};
+    for (const k of THEME_KEYS) if (/^#[0-9a-f]{6}$/i.test(theme?.[k] || '')) clean[k] = theme[k].toLowerCase();
+    saveConfig({ theme: clean });
+    return clean;
   });
 
   handle('win:minimize', () => win.minimize());
