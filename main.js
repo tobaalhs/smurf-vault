@@ -274,9 +274,11 @@ function sessionIndex() {
 }
 
 /** Guarda la sesión abierta en el Riot Client como la de `acc`, si tiene "Mantener sesión iniciada". */
-function captureSession(acc) {
-  const files = switcher.readSession();
+function captureSession(acc, files = switcher.readSession()) {
   if (!switcher.isRemembered(files)) return false;
+  // Si la sesión dice de qué cuenta es y no es esta, no se guarda (sería guardarla en la equivocada).
+  const owner = switcher.sessionOwner(files);
+  if (owner && owner !== acc.puuid && owner !== acc.apiPuuid) return false;
   const hash = crypto.createHash('sha256').update(JSON.stringify(files)).digest('hex');
   if (savedSessionHash.get(acc.id) === hash) return true;
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -285,6 +287,21 @@ function captureSession(acc) {
   fs.renameSync(tmp, sessionFile(acc.id));
   savedSessionHash.set(acc.id, hash);
   return true;
+}
+
+/**
+ * Guarda la sesión que tiene ahora el Riot Client en la cuenta a la que pertenece (según su token),
+ * aunque el LoL esté cerrado. Riot renueva el token al cerrarse o arrancar (por ejemplo al reiniciar el
+ * PC), y si no se guarda la versión nueva, la copia vieja deja de servir.
+ */
+function captureCurrentSession() {
+  if (!session) return null;
+  const files = switcher.readSession();
+  if (!switcher.isRemembered(files)) return null;
+  const owner = switcher.sessionOwner(files);
+  const acc = owner && session.data.accounts.find((a) => a.puuid === owner || a.apiPuuid === owner);
+  if (acc) captureSession(acc, files);
+  return acc || null;
 }
 
 function loadSession(id) {
@@ -316,6 +333,11 @@ async function switchTo(id) {
     if (BUSY_PHASES[phase]) throw new Error(`No se puede cambiar de cuenta ${BUSY_PHASES[phase]}`);
     if (await switcher.isInGame()) throw new Error('No se puede cambiar de cuenta en partida');
     await detectClient().catch(() => null);
+    // Antes de reemplazar la sesión del Riot Client se guarda la actual en su cuenta: puede ser más
+    // nueva que la copia que tenemos (Riot la renueva al cerrarse o al prender el PC).
+    try {
+      captureCurrentSession();
+    } catch {}
     const files = id ? loadSession(id) : null;
     await switcher.closeRiot();
     switcher.writeSession(files);
@@ -404,7 +426,13 @@ function findDetectedAccount(snap) {
 /** Lee la cuenta abierta en el cliente y, si está guardada, la actualiza. */
 async function detectClient({ force = false } = {}) {
   const snap = await lcu.currentAccount({ force });
-  if (!snap) return null;
+  if (!snap) {
+    // Sin el LoL abierto igual se guarda la sesión del Riot Client, si es de una cuenta conocida.
+    try {
+      captureCurrentSession();
+    } catch {}
+    return null;
+  }
   snap.server = riot.serverFromClient(snap.server);
   let matchedId = null;
   let autoLinked = false;
@@ -563,6 +591,9 @@ function registerIpc() {
     const { key, salt, data } = await decryptEnvelope(newest, password);
     session = { key, salt, data: { ...emptyVault(), ...data } };
     history.load(key);
+    try {
+      captureCurrentSession(); // p. ej. después de reiniciar el PC: la sesión del Riot Client puede ser más nueva
+    } catch {}
     lpLog.load(key);
     // Primer punto del gráfico de LP para las cuentas que todavía no tienen: su rango guardado.
     let lpChanged = false;

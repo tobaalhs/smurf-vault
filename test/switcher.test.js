@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { readSession, writeSession, isRemembered, sessionPaths } = require('../src/switcher');
+const { readSession, writeSession, isRemembered, sessionOwner, sessionPaths } = require('../src/switcher');
 const { createKey, encryptWithKey, decryptWithKey } = require('../src/vault');
 
 (async () => {
@@ -33,6 +33,13 @@ const { createKey, encryptWithKey, decryptWithKey } = require('../src/vault');
     // Sin sesión: se borra todo para que el cliente muestre el login.
     writeSession(null, root);
     assert.deepStrictEqual(readSession(root), {});
+
+    // De qué cuenta es la sesión: el `sub` del id_token (un JWT).
+    const jwt = (payload) => ['e30', Buffer.from(JSON.stringify(payload)).toString('base64url'), 'firma'].join('.');
+    const withToken = { x: b64(`psl:\n    authorization:\n        riot-client:\n            id_token: "${jwt({ sub: 'puuid-123', acr: 'x' })}"\n            refresh_token: "r"\n`) };
+    assert.strictEqual(sessionOwner(withToken), 'puuid-123');
+    assert.strictEqual(sessionOwner(a), null, 'sin id_token no se sabe');
+    assert.strictEqual(sessionOwner({ x: b64('id_token: "no.es-un-jwt"') }), null);
 
     // Lo guardado va cifrado con la clave de la bóveda.
     const { key, salt } = await createKey('maestra');

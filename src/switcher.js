@@ -51,6 +51,23 @@ function isRemembered(files) {
   );
 }
 
+/**
+ * PUUID de la cuenta dueña de la sesión: va en el campo `sub` del id_token (un JWT) que guarda el
+ * Riot Client. Solo se lee ese campo; el token no se valida ni se usa para nada más. null si no hay.
+ */
+function sessionOwner(files) {
+  for (const b64 of Object.values(files || {})) {
+    const text = Buffer.from(b64, 'base64').toString('utf8');
+    const payload = text.match(/^[ \t]*id_token:[ \t]*"?[\w-]+\.([\w-]+)\.[\w-]*"?/m)?.[1];
+    if (!payload) continue;
+    try {
+      const sub = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')).sub;
+      if (typeof sub === 'string' && sub) return sub;
+    } catch {}
+  }
+  return null;
+}
+
 /** Reemplaza la sesión del cliente por `files` (o la borra si es null, para mostrar el login). */
 function writeSession(files, root = riotDataRoot()) {
   for (const rel of sessionPaths()) {
@@ -190,6 +207,7 @@ module.exports = {
   readSession,
   writeSession,
   isRemembered,
+  sessionOwner,
   isInGame,
   closeRiot,
   launchLeague,
