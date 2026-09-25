@@ -9,6 +9,8 @@ const riot = require('./src/riot');
 const { AutoAccept } = require('./src/autoaccept');
 const { GameflowWatcher } = require('./src/gameflow');
 const { OfflineMode } = require('./src/offline');
+const { ChampSelect } = require('./src/champselect');
+const { RemoteServer, newToken } = require('./src/remote');
 const switcher = require('./src/switcher');
 const { LocalHistory, LpLog } = require('./src/history');
 const { GameData } = require('./src/gamedata');
@@ -36,10 +38,13 @@ let config = {
   trayHintShown: false,
   appearOffline: false, // herramienta: aparecer desconectado en el chat del LoL
   theme: {}, // colores que el usuario cambió (el resto son los predeterminados)
+  remoteEnabled: false, // herramienta: controlar la selección de campeones desde el celular
+  remoteToken: null, // código secreto que va en el QR
 };
 const offlineMode = new OfflineMode();
 let tray = null;
 let gameData = null;
+let remote = null;
 let quitting = false; // true cuando se sale de verdad (menú de la bandeja, actualización)
 
 // Una sola instancia: si la abres de nuevo estando en la bandeja, se muestra la que ya existe.
@@ -159,7 +164,16 @@ function onWindowClose(e) {
 }
 
 function toolsStatus() {
-  return { ...config, openAtLogin: openAtLogin(), clientConnected: autoAccept.connected };
+  const { remoteToken, ...safe } = config; // el código del celular no se manda a la interfaz salvo en el QR
+  return { ...safe, openAtLogin: openAtLogin(), clientConnected: autoAccept.connected };
+}
+
+/** Prende o apaga el servidor del control desde el celular según la configuración. */
+async function syncRemote() {
+  if (!config.remoteEnabled) return remote.stop();
+  // El código se guarda al generarlo: así el QR ya escaneado sigue sirviendo después de reiniciar.
+  if (!config.remoteToken) saveConfig({ remoteToken: newToken() });
+  await remote.start(config.remoteToken);
 }
 
 // ---------- abrir al iniciar Windows ----------
@@ -492,6 +506,14 @@ function registerIpc() {
     return clean;
   });
 
+  // Control desde el celular: QR, dirección y celulares conectados.
+  handle('remote:status', () => remote.status());
+  handle('remote:newCode', () => {
+    saveConfig({ remoteToken: newToken() });
+    remote.setToken(config.remoteToken);
+    return remote.status();
+  });
+
   handle('win:minimize', () => win.minimize());
   handle('win:toggleMaximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
   handle('win:close', () => win.close());
@@ -729,14 +751,17 @@ function registerIpc() {
   });
 
   handle('tools:get', () => toolsStatus());
-  handle('tools:set', (patch) => {
+  handle('tools:set', async (patch) => {
     const allowed = {};
     if ('autoAccept' in patch) allowed.autoAccept = !!patch.autoAccept;
     if ('autoAcceptDelay' in patch) allowed.autoAcceptDelay = Number(patch.autoAcceptDelay) || 0;
     if ('closeToTray' in patch) allowed.closeToTray = !!patch.closeToTray;
     if ('appearOffline' in patch) allowed.appearOffline = !!patch.appearOffline;
     if ('openAtLogin' in patch) setOpenAtLogin(!!patch.openAtLogin);
-    return saveConfig(allowed);
+    if ('remoteEnabled' in patch) allowed.remoteEnabled = !!patch.remoteEnabled;
+    const status = saveConfig(allowed);
+    if ('remoteEnabled' in allowed) await syncRemote();
+    return status;
   });
 
   handle('lcu:detect', (manual) => detectClient({ force: !!manual }));
@@ -852,6 +877,8 @@ app.whenReady().then(() => {
   app.setAppUserModelId('Smurf Vault'); // necesario para las notificaciones en Windows
   loadConfig();
   gameData = new GameData(path.join(userData, 'gamedata.json'));
+  remote = new RemoteServer({ champSelect: new ChampSelect(), gameData, appDir: __dirname });
+  syncRemote().catch(() => {});
   autoAccept = new AutoAccept({
     onAccepted: onMatchAccepted,
     onStatus: (s) => win?.webContents.send('tools', { event: 'status', ...s }),

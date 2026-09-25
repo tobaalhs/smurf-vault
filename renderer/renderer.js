@@ -852,6 +852,7 @@ function renderTools() {
     b.classList.toggle('active', Number(b.dataset.delay) === tools.autoAcceptDelay)
   );
   $('#offlineToggle').checked = !!tools.appearOffline;
+  $('#remoteToggle').checked = !!tools.remoteEnabled;
   const st = $('#clientStatus');
   st.classList.toggle('on', tools.autoAccept && tools.clientConnected === true);
   st.lastElementChild.textContent = !tools.autoAccept
@@ -866,6 +867,9 @@ function renderTools() {
 async function openTools() {
   tools = await window.api.getTools();
   renderTools();
+  loadRemoteStatus();
+  clearInterval(remoteTimer);
+  remoteTimer = setInterval(loadRemoteStatus, 3000);
   $('#toolsDialog').showModal();
 }
 
@@ -878,6 +882,43 @@ async function setTools(patch) {
 
 $('#autoChip').addEventListener('click', openTools);
 $('#offlineChip').addEventListener('click', openTools);
+
+// ---------- control desde el celular ----------
+
+let remoteTimer = null;
+
+async function loadRemoteStatus() {
+  const st = await window.api.remoteStatus().catch(() => ({ running: false }));
+  $('#remoteBody').classList.toggle('hidden', !st.running);
+  if (!st.running) return;
+  // El SVG del QR lo genera la app (librería qrcode), no viene de afuera.
+  if ($('#remoteQr').dataset.url !== st.url) {
+    $('#remoteQr').innerHTML = st.qr || '<p class="hint">No encontré la red local de este PC.</p>';
+    $('#remoteQr').dataset.url = st.url || '';
+  }
+  $('#remoteUrl').textContent = st.url || '—';
+  $('#remoteClients').textContent = st.clients ? `${st.clients === 1 ? 'Un celular conectado' : `${st.clients} celulares conectados`}` : 'Ningún celular conectado todavía.';
+}
+
+// Mientras Herramientas está abierto, se actualiza cuántos celulares hay conectados.
+$('#toolsDialog').addEventListener('close', () => {
+  clearInterval(remoteTimer);
+  remoteTimer = null;
+});
+
+$('#remoteToggle').addEventListener('change', async (e) => {
+  await setTools({ remoteEnabled: e.target.checked });
+  await loadRemoteStatus();
+  toast(e.target.checked ? 'Control desde el celular activado: escanea el QR' : 'Control desde el celular desactivado', 'ok');
+});
+
+$('#remoteNewCode').addEventListener('click', (e) =>
+  run(e.currentTarget, async () => {
+    await window.api.remoteNewCode();
+    await loadRemoteStatus();
+    toast('Código nuevo: vuelve a escanear el QR en el celular', 'ok');
+  })
+);
 $('#offlineToggle').addEventListener('change', async (e) => {
   await setTools({ appearOffline: e.target.checked }); // renderTools muestra u oculta el chip
   toast(e.target.checked ? 'Apareces desconectado en el LoL' : 'Vuelves a aparecer en línea', 'ok');

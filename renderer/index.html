@@ -319,6 +319,30 @@
           </label>
         </div>
       </section>
+
+      <section class="tool">
+        <div class="tool-head">
+          <div class="tool-icon"><i data-icon="phone"></i></div>
+          <div class="tool-text">
+            <h3>Control desde el celular</h3>
+            <p class="hint">Acepta la partida, banea, elige campeón, skin, hechizos y runas desde el celular, sin pararte del sillón. El celular tiene que estar en el mismo WiFi que el PC.</p>
+          </div>
+          <label class="switch" aria-label="Control desde el celular">
+            <input type="checkbox" id="remoteToggle" />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </div>
+        <div class="remote-body hidden" id="remoteBody">
+          <div class="remote-qr" id="remoteQr"></div>
+          <div class="remote-info">
+            <p><b>Escanea el código con la cámara del celular.</b> Se abre una página en el navegador; no hay que instalar nada.</p>
+            <p class="hint">O abre en el celular: <code id="remoteUrl"></code></p>
+            <p class="hint" id="remoteClients"></p>
+            <p class="hint small-note">Si Windows pregunta si Smurf Vault puede usar la red, acepta en <b>redes privadas</b>: si no, el celular no se puede conectar.</p>
+            <button type="button" class="btn subtle sm" id="remoteNewCode" data-tip="Los celulares conectados con el código anterior quedan afuera">Generar código nuevo</button>
+          </div>
+        </div>
+      </section>
     </form>
   </dialog>
 

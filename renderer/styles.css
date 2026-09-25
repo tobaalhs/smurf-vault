@@ -368,6 +368,13 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
 .offline-chip .ic { fill: none; }
 
 .tool { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.remote-body { display: flex; gap: 16px; align-items: flex-start; margin-top: 14px; }
+.remote-qr { width: 150px; height: 150px; flex: none; border-radius: 10px; overflow: hidden; background: #fff; padding: 6px; }
+.remote-qr svg { width: 100%; height: 100%; display: block; }
+.remote-info { display: flex; flex-direction: column; gap: 8px; font-size: 13px; min-width: 0; }
+.remote-info p { margin: 0; }
+.remote-info code { user-select: all; color: var(--text); }
+.remote-info .btn { align-self: flex-start; }
 .tool-head { display: flex; gap: 12px; align-items: flex-start; }
 .tool-icon {
   width: 36px; height: 36px; flex: none; display: grid; place-items: center; border-radius: 10px;

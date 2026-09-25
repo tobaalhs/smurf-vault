@@ -18,7 +18,8 @@ Bóveda cifrada para tus cuentas de Riot (LoL), con respaldo en tu Google Drive.
 - 🎮 **Detectar cliente**: con el LoL abierto, lee nick, tag, nivel, ícono, rangos de LoL y TFT y la última partida de la cuenta en la que iniciaste sesión.
 - 🕒 **Última partida** de cada cuenta (LoL o TFT), para ordenarlas por las que usas más.
 - 📈 **Actualizar rangos** de todas las cuentas sin abrir el juego (API oficial de Riot, necesita una API key gratuita).
-- ⚡ **Herramientas** opcionales: autoaceptar partidas y aparecer desconectado en el chat del LoL.
+- ⚡ **Herramientas** opcionales: autoaceptar partidas, aparecer desconectado en el chat del LoL y
+  📱 **control desde el celular** (escaneas un QR y aceptas, baneas, eliges campeón, skin, hechizos y runas).
 - 🎨 **Colores personalizables** en Ajustes, con botón para volver a los predeterminados.
 - 🪟 **Bandeja del sistema**: al cerrar sigue en segundo plano (configurable) y puede abrirse al iniciar Windows.
 - 📋 Copiar usuario y contraseña con un clic; el portapapeles se limpia a los 30 s.

@@ -1,0 +1,121 @@
+:root {
+  --bg: #080b10; --surface: #0f141b; --surface-2: #151b24; --surface-3: #1b2330;
+  --border: rgba(255,255,255,.08); --border-strong: rgba(255,255,255,.14);
+  --text: #ebe7de; --text-2: #b7b2a7; --muted: #7d8796;
+  --gold: #d6b36a; --gold-hi: #ecd294; --cyan: #1fd6d0; --ok: #3ccf8e; --danger: #f06a5f; --ban: #e84057;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+.hidden { display: none !important; }
+.spacer { flex: 1; }
+
+.top {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px; background: rgba(8,11,16,.92); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+.top img { width: 26px; height: 26px; border-radius: 7px; }
+.conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.conn.on i { background: var(--ok); box-shadow: 0 0 0 3px rgba(60,207,142,.18); }
+.conn.off i { background: var(--danger); }
+
+main { padding: 16px; }
+
+/* pantallas simples (lobby, buscando, en partida) */
+.center { min-height: 70dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; }
+.center h1 { margin: 0; font-size: 24px; }
+.center p { margin: 0; color: var(--text-2); max-width: 320px; }
+.big-time { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.pulse { width: 74px; height: 74px; border-radius: 50%; border: 3px solid var(--cyan); animation: pulse 1.6s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(31,214,208,.45); } 100% { box-shadow: 0 0 0 28px rgba(31,214,208,0); } }
+
+/* partida encontrada */
+.ready-actions { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 340px; margin-top: 18px; }
+.btn-big {
+  height: 64px; border-radius: 14px; font-size: 20px; font-weight: 800; letter-spacing: .06em;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #1a1408;
+  box-shadow: 0 10px 30px rgba(214,179,106,.25);
+}
+.btn-big:active { transform: scale(.98); }
+.btn-big.accept { background: linear-gradient(180deg, #5ce2a8, var(--ok)); color: #062015; box-shadow: 0 10px 30px rgba(60,207,142,.25); }
+.btn-big.ban { background: linear-gradient(180deg, #ff6a82, var(--ban)); color: #fff; box-shadow: 0 10px 30px rgba(232,64,87,.3); }
+.btn-big:disabled { opacity: .45; box-shadow: none; }
+.btn-sub { height: 50px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2); font-weight: 600; }
+
+/* selección de campeones */
+.cs-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.cs-head .t { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 56px; }
+.cs-head .t.hurry { color: var(--danger); }
+.cs-head h2 { margin: 0; font-size: 17px; }
+.cs-head small { display: block; color: var(--muted); font-size: 12.5px; }
+.timebar { height: 4px; border-radius: 4px; background: var(--surface-3); overflow: hidden; margin: -4px 0 14px; }
+.timebar i { display: block; height: 100%; background: var(--cyan); transition: width 1s linear; }
+
+.team { display: flex; gap: 8px; justify-content: space-between; margin-bottom: 10px; }
+.slot { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.slot .pic { width: 100%; aspect-ratio: 1; max-width: 58px; border-radius: 50%; background: var(--surface-3); border: 2px solid var(--border-strong); overflow: hidden; }
+.slot .pic img { width: 100%; height: 100%; object-fit: cover; }
+.slot .pic.hover img { opacity: .45; filter: grayscale(.4); }
+.slot.me .pic { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(214,179,106,.2); }
+.slot small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.slot.me small { color: var(--gold-hi); font-weight: 700; }
+.bans { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; font-size: 11px; color: var(--muted); }
+.bans img { width: 24px; height: 24px; border-radius: 6px; filter: grayscale(1); opacity: .75; }
+.bans .sep { flex: 1; }
+
+.search {
+  width: 100%; height: 46px; border-radius: 12px; border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text); font: inherit; padding: 0 14px; outline: none; margin-bottom: 12px;
+}
+.search:focus { border-color: var(--cyan); }
+.champs { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 10px; padding-bottom: 96px; }
+.champ { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.champ img { width: 100%; aspect-ratio: 1; border-radius: 12px; border: 2px solid transparent; background: var(--surface-3); }
+.champ span { font-size: 11px; color: var(--text-2); text-align: center; line-height: 1.15; }
+.champ.sel img { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(214,179,106,.25); }
+.champ.sel.banning img { border-color: var(--ban); box-shadow: 0 0 0 3px rgba(232,64,87,.25); }
+.lockbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(0deg, var(--bg) 70%, rgba(8,11,16,0));
+}
+.lockbar .btn-big { width: 100%; }
+
+/* skin, hechizos y runas */
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 14px; }
+.tabs button { flex: 1; height: 38px; border-radius: 9px; color: var(--muted); font-weight: 600; font-size: 14px; }
+.tabs button.on { background: var(--surface-3); color: var(--text); }
+.skins { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.skin { position: relative; border-radius: 12px; overflow: hidden; border: 2px solid transparent; background: var(--surface-3); aspect-ratio: 1; }
+.skin img { width: 100%; height: 100%; object-fit: cover; }
+.skin span { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 6px; font-size: 12px; font-weight: 600; background: linear-gradient(0deg, rgba(0,0,0,.85), transparent); }
+.skin.sel { border-color: var(--gold); }
+.spell-slots { display: flex; gap: 12px; margin-bottom: 14px; }
+.spell-slot { flex: 1; display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--surface); border: 2px solid var(--border); text-align: left; }
+.spell-slot.on { border-color: var(--cyan); }
+.spell-slot img { width: 44px; height: 44px; border-radius: 9px; }
+.spell-slot small { display: block; color: var(--muted); font-size: 11px; }
+.spells { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.spell { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: var(--text-2); }
+.spell img { width: 100%; aspect-ratio: 1; border-radius: 10px; border: 2px solid transparent; }
+.spell.sel img { border-color: var(--cyan); }
+.pages { display: flex; flex-direction: column; gap: 8px; }
+.page { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 2px solid var(--border); text-align: left; }
+.page img { width: 34px; height: 34px; }
+.page b { display: block; font-size: 14px; }
+.page small { color: var(--muted); font-size: 12px; }
+.page.sel { border-color: var(--gold); }
+.rec { width: 100%; margin-bottom: 12px; }
+.hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+
+.toast {
+  position: fixed; left: 16px; right: 16px; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 9;
+  padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border-strong);
+  box-shadow: 0 10px 30px rgba(0,0,0,.5); font-size: 14px;
+}
+.toast.error { border-color: rgba(240,106,95,.5); }
