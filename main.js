@@ -12,6 +12,7 @@ const { OfflineMode } = require('./src/offline');
 const { ChampSelect } = require('./src/champselect');
 const { RemoteServer, newToken } = require('./src/remote');
 const switcher = require('./src/switcher');
+const autotype = require('./src/autotype');
 const { LocalHistory, LpLog } = require('./src/history');
 const { GameData } = require('./src/gamedata');
 const { autoUpdater } = require('electron-updater');
@@ -37,6 +38,7 @@ let config = {
   closeToTray: true,
   trayHintShown: false,
   appearOffline: false, // herramienta: aparecer desconectado en el chat del LoL
+  autoType: false, // herramienta: escribir la contraseña en el login de Riot (experimental)
   theme: {}, // colores que el usuario cambió (el resto son los predeterminados)
   remoteEnabled: false, // herramienta: controlar la selección de campeones desde el celular
   remoteToken: null, // código secreto que va en el QR
@@ -346,6 +348,40 @@ async function switchTo(id) {
     return { restored: !!files };
   } finally {
     switching = false;
+  }
+}
+
+// Aviso suelto para la interfaz (un toast), p. ej. al terminar el autoescrito en segundo plano.
+function notify(kind, message) {
+  win?.webContents.send('notice', { kind, message });
+}
+
+/**
+ * Inicio de sesión sin sesión guardada. Con autoType activado, escribe usuario y contraseña en el
+ * login de Riot (la contraseña va por el portapapeles, nunca por argumentos). Si no se puede, cae al
+ * comportamiento de siempre: deja la contraseña copiada para pegarla a mano.
+ */
+async function assistLogin(acc) {
+  if (!acc.password) return;
+  if (!config.autoType) {
+    copySecret(acc.password);
+    return;
+  }
+  const fallback = (msg) => {
+    copySecret(acc.password);
+    notify('info', msg);
+  };
+  try {
+    if (!(await autotype.waitForWindow())) return fallback('No apareció la ventana de Riot; la contraseña quedó copiada para pegarla.');
+    clipboard.writeText(acc.username || '');
+    if (!(await autotype.sendKeys(['^a', '^v', '{TAB}']))) return fallback('No pude enfocar el login de Riot; la contraseña quedó copiada.');
+    clipboard.writeText(acc.password);
+    const typed = await autotype.sendKeys(['^a', '^v', '{ENTER}']);
+    if (clipboard.readText() === acc.password) clipboard.clear();
+    if (!typed) return notify('error', 'No pude terminar de escribir; revisa el login de Riot.');
+    notify('ok', 'Datos escritos en Riot. Si pide verificación o captcha, termínalo en la ventana.');
+  } catch {
+    fallback('No pude escribir en Riot; la contraseña quedó copiada.');
   }
 }
 
@@ -793,6 +829,7 @@ function registerIpc() {
     if ('autoAcceptDelay' in patch) allowed.autoAcceptDelay = Number(patch.autoAcceptDelay) || 0;
     if ('closeToTray' in patch) allowed.closeToTray = !!patch.closeToTray;
     if ('appearOffline' in patch) allowed.appearOffline = !!patch.appearOffline;
+    if ('autoType' in patch) allowed.autoType = !!patch.autoType;
     if ('openAtLogin' in patch) setOpenAtLogin(!!patch.openAtLogin);
     if ('remoteEnabled' in patch) allowed.remoteEnabled = !!patch.remoteEnabled;
     const status = saveConfig(allowed);
@@ -820,7 +857,7 @@ function registerIpc() {
     requireSession();
     const acc = findAccount(id);
     const res = await switchTo(id);
-    if (!res.restored && acc.password) copySecret(acc.password);
+    if (!res.restored) assistLogin(acc).catch(() => {}); // en segundo plano: no bloquea la respuesta
     return res;
   });
 

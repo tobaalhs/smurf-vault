@@ -851,6 +851,7 @@ function updateSync(s) {
 }
 
 window.api.onSync(updateSync);
+window.api.onNotice((n) => toast(n.message, n.kind));
 
 // Datos que cambian solos (fin de partida, LP actualizados después de la partida).
 window.api.onData((d) => {
@@ -873,6 +874,7 @@ function renderTools() {
   );
   $('#offlineToggle').checked = !!tools.appearOffline;
   $('#remoteToggle').checked = !!tools.remoteEnabled;
+  $('#autoTypeToggle').checked = !!tools.autoType;
   const st = $('#clientStatus');
   st.classList.toggle('on', tools.autoAccept && tools.clientConnected === true);
   st.lastElementChild.textContent = !tools.autoAccept
@@ -939,6 +941,10 @@ $('#remoteNewCode').addEventListener('click', (e) =>
     toast('Código nuevo: vuelve a escanear el QR en el celular', 'ok');
   })
 );
+$('#autoTypeToggle').addEventListener('change', async (e) => {
+  await setTools({ autoType: e.target.checked });
+  toast(e.target.checked ? 'Al iniciar sesión se escribirá la contraseña en Riot' : 'Se volverá a solo copiar la contraseña', 'ok');
+});
 $('#offlineToggle').addEventListener('change', async (e) => {
   await setTools({ appearOffline: e.target.checked }); // renderTools muestra u oculta el chip
   toast(e.target.checked ? 'Apareces desconectado en el LoL' : 'Vuelves a aparecer en línea', 'ok');

@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('api', {
   forgetSession: (id) => call('switch:forget', id),
   onSync: (cb) => ipcRenderer.on('sync', (_e, s) => cb(s)),
   onData: (cb) => ipcRenderer.on('data', (_e, d) => cb(d)),
+  onNotice: (cb) => ipcRenderer.on('notice', (_e, n) => cb(n)),
   onLocked: (cb) => ipcRenderer.on('locked', () => cb()),
   setTheme: (theme) => call('theme:set', theme),
   remoteStatus: () => call('remote:status'),
