@@ -12,6 +12,7 @@ const { OfflineMode } = require('./src/offline');
 const { ChampSelect } = require('./src/champselect');
 const { RemoteServer, newToken } = require('./src/remote');
 const switcher = require('./src/switcher');
+const riotlogin = require('./src/riotlogin');
 const autotype = require('./src/autotype');
 const { LocalHistory, LpLog } = require('./src/history');
 const { GameData } = require('./src/gamedata');
@@ -38,7 +39,7 @@ let config = {
   closeToTray: true,
   trayHintShown: false,
   appearOffline: false, // herramienta: aparecer desconectado en el chat del LoL
-  autoType: false, // herramienta: escribir la contraseña en el login de Riot (experimental)
+  autoType: true, // login automático: inyecta usuario y contraseña en el login de Riot (experimental)
   theme: {}, // colores que el usuario cambió (el resto son los predeterminados)
   remoteEnabled: false, // herramienta: controlar la selección de campeones desde el celular
   remoteToken: null, // código secreto que va en el QR
@@ -382,6 +383,58 @@ async function assistLogin(acc) {
     notify('ok', 'Datos escritos en Riot. Si pide verificación o captcha, termínalo en la ventana.');
   } catch {
     fallback('No pude escribir en Riot; la contraseña quedó copiada.');
+  }
+}
+
+// Mensaje de cada paso de la inyección, para la guía de la interfaz.
+const LOGIN_STEP_TEXT = {
+  waitAuth: 'Abriendo el Riot Client…',
+  signOut: 'Cerrando la sesión anterior…',
+  connect: 'Preparando el inicio de sesión…',
+  findWindow: 'Abriendo la pantalla de login…',
+  type: 'Escribiendo tus credenciales…',
+  verification: 'Riot pide verificación: complétala en la ventana del Riot Client.',
+  confirm: 'Confirmando el inicio de sesión…',
+};
+
+/**
+ * Inicio de sesión automático por inyección (portado de LeagueAccounts): toma el control del Riot
+ * Client, abre su login con depuración remota e inyecta usuario y contraseña en el formulario nativo.
+ * La contraseña solo viaja al propio cliente (127.0.0.1). Si la inyección falla, cae al login manual
+ * (abre la pantalla de Riot y, con autoType, intenta escribirla; si no, la deja copiada).
+ */
+async function injectLogin(acc) {
+  if (switching) throw new Error('Ya se está cambiando de cuenta');
+  switching = true;
+  try {
+    const phase = await lcu.get('/lol-gameflow/v1/gameflow-phase');
+    if (BUSY_PHASES[phase]) throw new Error(`No se puede cambiar de cuenta ${BUSY_PHASES[phase]}`);
+    if (await switcher.isInGame()) throw new Error('No se puede cambiar de cuenta en partida');
+    // Guardamos la sesión abierta antes de tocar el cliente (Riot renueva los tokens).
+    try {
+      captureCurrentSession();
+    } catch {}
+    const name = riotIdOf(acc) || acc.username;
+    const onProgress = (step) => win?.webContents.send('login-progress', { step, text: LOGIN_STEP_TEXT[step] || '', account: name });
+    await switcher.closeRiot();
+    try {
+      await riotlogin.autoLogin({ username: acc.username, password: acc.password, onProgress });
+      // Ya con sesión iniciada en el servicio del cliente: abrimos el LoL como el botón "Jugar".
+      switcher.launchLeague();
+      switcher.ensureLeagueStarts().catch(() => {});
+      win?.webContents.send('login-progress', { step: 'done', account: name });
+      notify('ok', `Sesión iniciada con ${name}. Abriendo LoL…`);
+    } catch (e) {
+      // La inyección no pudo: abrimos el login normal y usamos el camino manual (teclado o copiar).
+      win?.webContents.send('login-progress', { step: 'failed', message: e.message });
+      switcher.writeSession(null);
+      switcher.launchLeague();
+      switcher.ensureLeagueStarts().catch(() => {});
+      assistLogin(acc).catch(() => copySecret(acc.password));
+      notify('error', `No pude iniciar sesión por inyección (${e.message}). Entra a mano en el Riot Client.`);
+    }
+  } finally {
+    switching = false;
   }
 }
 
@@ -856,6 +909,12 @@ function registerIpc() {
   handle('switch:play', async (id) => {
     requireSession();
     const acc = findAccount(id);
+    // Login automático por inyección: siempre que haya credenciales, sin depender de la sesión guardada.
+    // Corre en segundo plano (puede tardar o pedir verificación) y avisa por eventos 'login-progress'.
+    if (config.autoType && acc.username && acc.password) {
+      injectLogin(acc).catch((e) => notify('error', e.message));
+      return { restored: false, injecting: true };
+    }
     const res = await switchTo(id);
     if (!res.restored) assistLogin(acc).catch(() => {}); // en segundo plano: no bloquea la respuesta
     return res;

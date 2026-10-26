@@ -884,9 +884,9 @@ function detailHtml(a) {
     <div class="d-body">${{ history: historyHtml, progress: progressHtml, champions: championsHtml }[detailTab]?.(a) ?? summaryHtml(a)}</div>
     <div class="d-actions">
       ${
-        saved
+        saved || (a.username && a.password)
           ? `<button type="button" class="play-big" data-act="play"><span>${icon('play')}JUGAR</span></button>`
-          : `<button type="button" class="play-big login" data-act="play" data-tip="La primera vez, marca &quot;Mantener sesión iniciada&quot; y después entras con un clic"><span>${icon('logIn')}INICIAR SESIÓN</span></button>`
+          : `<button type="button" class="play-big login" data-act="play" data-tip="Guarda usuario y contraseña (o marca &quot;Mantener sesión iniciada&quot;) para entrar con un clic"><span>${icon('logIn')}INICIAR SESIÓN</span></button>`
       }
       <button type="button" class="btn subtle" data-act="edit">${icon('pencil')}Editar</button>
       <button type="button" class="btn subtle" data-act="refresh" data-tip="Lee rangos, historial y maestrías desde el cliente de LoL (esta cuenta tiene que estar abierta ahí)">${icon('refresh')}Actualizar</button>

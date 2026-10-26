@@ -511,7 +511,10 @@ async function play(acc, btn) {
   await run(btn, async () => {
     const res = await window.api.play(acc.id);
     detectSoon();
-    if (res.restored) {
+    if (res.injecting) {
+      // La inyección corre en segundo plano; los pasos llegan por onLoginProgress.
+      showGuide(`Iniciando sesión con <b>${esc(riotId(acc) || acc.username)}</b> automáticamente…`);
+    } else if (res.restored) {
       hideGuide();
       toast(`Abriendo LoL con ${riotId(acc) || acc.username}…`, 'ok');
     } else {
@@ -852,6 +855,18 @@ function updateSync(s) {
 
 window.api.onSync(updateSync);
 window.api.onNotice((n) => toast(n.message, n.kind));
+
+// Progreso del inicio de sesión automático por inyección: va actualizando la guía.
+window.api.onLoginProgress((p) => {
+  if (p.step === 'done') {
+    hideGuide();
+    toast('Sesión iniciada. Abriendo LoL…', 'ok');
+  } else if (p.step === 'failed') {
+    hideGuide();
+  } else if (p.text) {
+    showGuide(p.text);
+  }
+});
 
 // Datos que cambian solos (fin de partida, LP actualizados después de la partida).
 window.api.onData((d) => {
