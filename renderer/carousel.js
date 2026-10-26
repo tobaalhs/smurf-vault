@@ -131,10 +131,68 @@ renderSoundBtn();
 
 // ---------- rueda ----------
 
+// ---------- filtro "dúo con amigo" (Friend elo) ----------
+
+const FRIEND_TIER_ES = { IRON: 'Hierro', BRONZE: 'Bronce', SILVER: 'Plata', GOLD: 'Oro', PLATINUM: 'Platino', EMERALD: 'Esmeralda', DIAMOND: 'Diamante', MASTER: 'Maestro' };
+let friendTier = '';
+let friendDiv = 'I';
+try {
+  const saved = JSON.parse(localStorage.getItem('friendElo') || '{}');
+  if (DUO_TIERS.includes(saved.tier)) {
+    friendTier = saved.tier;
+    friendDiv = saved.div || 'I';
+  }
+} catch {}
+
+function setupFriendBar() {
+  const t = $('#friendTier');
+  if (t.options.length) return; // ya armado
+  t.innerHTML = '<option value="">— nadie —</option>' + DUO_TIERS.map((k) => `<option value="${k}">${FRIEND_TIER_ES[k]}</option>`).join('');
+  $('#friendDiv').innerHTML = ['I', 'II', 'III', 'IV'].map((d) => `<option>${d}</option>`).join('');
+  t.value = friendTier;
+  $('#friendDiv').value = friendDiv;
+  t.addEventListener('change', () => {
+    friendTier = t.value;
+    saveFriend();
+    render();
+  });
+  $('#friendDiv').addEventListener('change', () => {
+    friendDiv = $('#friendDiv').value;
+    saveFriend();
+    render();
+  });
+  $('#friendClear').addEventListener('click', () => {
+    friendTier = '';
+    t.value = '';
+    saveFriend();
+    render();
+  });
+}
+
+function saveFriend() {
+  try {
+    localStorage.setItem('friendElo', JSON.stringify({ tier: friendTier, div: friendDiv }));
+  } catch {}
+}
+
+/** Si hay filtro activo, deja solo las cuentas que pueden hacer dúo con ese amigo. */
+function applyFriendFilter(list) {
+  setupFriendBar();
+  const active = DUO_TIERS.includes(friendTier);
+  $('#friendBar').classList.toggle('on', active);
+  $('#friendClear').classList.toggle('hidden', !active);
+  // Maestro no tiene división.
+  $('#friendDiv').classList.toggle('hidden', friendTier === 'MASTER' || !active);
+  if (!active) return list;
+  return list.filter((a) => canDuo(a.ranks?.solo, friendTier, friendDiv));
+}
+
 function renderCarousel(list) {
+  list = applyFriendFilter(list);
   wheelList = list;
   $('#wheelCount').textContent =
     list.length === data.accounts.length ? `${list.length} cuentas` : `${list.length} de ${data.accounts.length} cuentas`;
+  if (!list.length && DUO_TIERS.includes(friendTier)) $('#wheelCount').textContent = `Ninguna cuenta puede hacer dúo con ${FRIEND_TIER_ES[friendTier]}${friendTier === 'MASTER' ? '' : ' ' + friendDiv}`;
   const sig = JSON.stringify(list.map((a) => [a, data.sessions?.[a.id]]));
   if (sig !== wheelSig) {
     wheelSig = sig;
@@ -151,8 +209,18 @@ function renderCarousel(list) {
   }
 }
 
+/** Texto del baneo de la cuenta, o null. */
+function banInfo(a) {
+  if (!a.ban) return null;
+  if (a.ban.permanent) return { chip: 'Baneada permanentemente', short: 'Baneada', tip: 'Cuenta con baneo permanente de LoL' };
+  const left = untilText(a.ban.until);
+  if (!left) return null;
+  return { chip: `Baneada · ${left}`, short: left, tip: `Termina ${new Date(a.ban.until).toLocaleString()}` };
+}
+
 function wheelItemHtml(a) {
   const r = topRank(a);
+  const ban = banInfo(a);
   const sub = [a.server, a.label, a.lastPlayedAt ? ago(a.lastPlayedAt) : ''].filter(Boolean).map(esc).join(' · ');
   return `<div class="plate"></div>
     <div class="w-row">
@@ -163,9 +231,11 @@ function wheelItemHtml(a) {
       </div>
       <div class="w-tier">
         ${
-          r
-            ? `<div><b class="t-${r.tier.toLowerCase()}">${rankLabel(r)}</b><small>${r.lp} LP</small></div><img src="assets/ranks/${r.tier.toLowerCase()}.png" alt="" />`
-            : '<div><b class="t-none">Sin rango</b></div>'
+          ban
+            ? `<div class="w-ban" data-tip="${esc(ban.tip)}">${icon('ban')}<b>${esc(ban.short)}</b></div>`
+            : r
+              ? `<div><b class="t-${r.tier.toLowerCase()}">${rankLabel(r)}</b><small>${r.lp} LP</small></div><img src="assets/ranks/${r.tier.toLowerCase()}.png" alt="" />`
+              : '<div><b class="t-none">Sin rango</b></div>'
         }
       </div>
     </div>`;
@@ -800,6 +870,7 @@ function detailHtml(a) {
           ${a.server ? `<span class="chip">${esc(a.server)}</span>` : ''}
           ${a.label ? `<span class="chip label">${esc(a.label)}</span>` : ''}
           ${saved ? `<span class="chip ok" data-tip="Guardada ${ago(saved)}"><span class="sdot"></span>Sesión guardada</span>` : '<span class="chip warn">Sin sesión guardada</span>'}
+          ${banInfo(a) ? `<span class="chip ban" data-tip="${esc(banInfo(a).tip)}">${icon('ban')}${esc(banInfo(a).chip)}</span>` : ''}
         </div>
       </div>
       <button type="button" class="fav-btn${a.favorite ? ' on' : ''}" data-act="fav" data-tip="${a.favorite ? 'Quitar de favoritas' : 'Favorita: queda siempre arriba'}">${icon('star')}</button>

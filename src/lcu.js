@@ -7,6 +7,7 @@ const pathLib = require('path');
 const { execFile } = require('child_process');
 const { fromLolGame, fromTftGame, KEEP } = require('./matches');
 const { masteryFrom } = require('./mastery');
+const { banFromSession } = require('./ban');
 
 // Carpetas donde buscar el lockfile del cliente. Si el cliente está instalado en otra parte,
 // la carpeta se aprende al encontrar el proceso.
@@ -183,6 +184,8 @@ async function currentAccount({ force = false } = {}) {
     matches: history || tftHistory ? matches : undefined,
     crest: crestFrom(regalia),
     mastery: masteryFrom(mastery, masteryScore),
+    // null = sin baneo de juego; el cliente siempre responde la sesión, así que es confiable.
+    ban: banFromSession(session),
     ranks: {
       solo: rankFrom(ranked?.queueMap?.RANKED_SOLO_5x5),
       flex: rankFrom(ranked?.queueMap?.RANKED_FLEX_SR),

@@ -72,6 +72,19 @@ function bestRank(a) {
   return Math.max(rankScore(a.ranks?.solo), rankScore(a.ranks?.tft));
 }
 
+// Tiempo que falta hasta `iso` en texto, p. ej. "2 días 5 h". '' si ya pasó.
+function untilText(iso) {
+  let min = Math.round((new Date(iso) - Date.now()) / 60000);
+  if (min <= 0) return '';
+  const d = Math.floor(min / 1440);
+  min -= d * 1440;
+  const h = Math.floor(min / 60);
+  const m = min - h * 60;
+  if (d) return `${d} ${d === 1 ? 'día' : 'días'}${h ? ` ${h} h` : ''}`;
+  if (h) return `${h} h${m ? ` ${m} min` : ''}`;
+  return `${m} min`;
+}
+
 function ago(iso) {
   if (!iso) return 'nunca';
   const m = Math.round((Date.now() - new Date(iso)) / 60000);
@@ -359,7 +372,7 @@ $('#accountForm').addEventListener('submit', async (e) => {
 
 $('#accountDelete').addEventListener('click', async () => {
   const f = $('#accountForm');
-  if (!(await confirmDialog(`Se eliminará "${f.gameName.value || f.username.value}" de tu bóveda. No se puede deshacer.`))) return;
+  if (!(await confirmDialog(`Se eliminará "${f.gameName.value || f.username.value}" de tu bóveda. No se puede deshacer.`, 'Eliminar', 'Cancelar', '¿Eliminar cuenta?'))) return;
   await run(null, async () => {
     data = await window.api.deleteAccount(f.id.value);
     $('#accountDialog').close();
@@ -377,9 +390,12 @@ $('#accountForget').addEventListener('click', (e) =>
   })
 );
 
-function confirmDialog(text) {
+function confirmDialog(text, yes = 'Eliminar', no = 'Cancelar', title = '¿Estás seguro?') {
   const d = $('#confirmDialog');
   $('#confirmText').textContent = text;
+  $('#confirmYes').textContent = yes;
+  $('#confirmNo').textContent = no;
+  $('#confirmTitle').textContent = title;
   d.returnValue = '';
   d.showModal();
   return new Promise((res) => d.addEventListener('close', () => res(d.returnValue === 'yes'), { once: true }));
@@ -488,6 +504,10 @@ function detectSoon(timeoutMs = 180_000) {
 }
 
 async function play(acc, btn) {
+  if (acc.ban) {
+    const left = acc.ban.permanent ? 'Tiene un baneo permanente de LoL' : `Baneada: termina en ${untilText(acc.ban.until)}`;
+    if (!(await confirmDialog(`${left}. Si entras a una partida te desconectará. ¿Abrir igual?`, 'Abrir igual', 'Cancelar', 'Cuenta baneada'))) return;
+  }
   await run(btn, async () => {
     const res = await window.api.play(acc.id);
     detectSoon();

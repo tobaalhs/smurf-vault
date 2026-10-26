@@ -394,6 +394,11 @@ function applySnapshot(acc, snap) {
   if (snap.backgroundSkinId) acc.backgroundSkinId = snap.backgroundSkinId;
   if (snap.crest) acc.crest = snap.crest;
   if (snap.mastery) acc.mastery = snap.mastery;
+  // 'ban' viene solo del cliente (undefined desde la API de Riot): no se pisa lo del cliente.
+  if (snap.ban !== undefined) {
+    if (snap.ban) acc.ban = snap.ban;
+    else delete acc.ban;
+  }
   if (lpLog.record(acc.id, acc.ranks)) saveLp();
   if (snap.matches && history.add(acc.id, snap.matches)) saveHistory();
 }

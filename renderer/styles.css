@@ -444,6 +444,10 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
 
 /* ================= vista carrusel (estilo osu!) ================= */
 .list-tools { display: flex; align-items: center; gap: 8px; }
+.friend-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.friend-label { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.friend-bar select { height: 32px; font-size: 12.5px; }
+.friend-bar.on .friend-label { color: var(--gold-hi); font-weight: 600; }
 .seg { display: inline-flex; gap: 2px; padding: 2px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
 .seg button {
   width: 30px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px;
@@ -541,6 +545,11 @@ dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em
   background: var(--bg); border: 1px solid var(--res, var(--border-strong));
 }
 .m-lp.up { color: var(--ok); } .m-lp.down { color: var(--loss); }
+.chip.ban { color: var(--loss); border-color: color-mix(in srgb, var(--loss) 40%, transparent); background: color-mix(in srgb, var(--loss) 12%, transparent); }
+.chip.ban .ic { width: 12px; height: 12px; }
+.w-ban { display: inline-flex; align-items: center; gap: 5px; color: var(--loss); font-weight: 600; font-size: 12.5px; text-align: right; }
+.w-ban .ic { width: 15px; height: 15px; }
+.d-confirm-danger .btn.danger { background: var(--danger); }
 .w-fav .ic { width: 13px; height: 13px; color: var(--gold); fill: var(--gold); margin-right: 5px; vertical-align: -1px; }
 .w-sub { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-shadow: 0 1px 4px rgba(0,0,0,.9); }
 /* el #tag gris se perdía sobre el splash de la tarjeta */

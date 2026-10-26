@@ -143,6 +143,12 @@
               </div>
             </div>
           </div>
+          <div class="friend-bar" id="friendBar">
+            <span class="friend-label" data-tip="Muestra solo las cuentas que pueden jugar clasificatoria Solo/Dúo con un amigo de este rango">Dúo con amigo</span>
+            <select id="friendTier" aria-label="Rango del amigo"></select>
+            <select id="friendDiv" aria-label="División del amigo"></select>
+            <button type="button" id="friendClear" class="btn ghost icon-only sm hidden" data-tip="Quitar filtro" aria-label="Quitar filtro"><i data-icon="x"></i></button>
+          </div>
         </div>
         <div class="side-count"><span id="wheelCount"></span><span id="wheelPos"></span></div>
         <div class="wheel" id="wheel"></div>
@@ -428,12 +434,12 @@
   <!-- ============ Diálogo: confirmar ============ -->
   <dialog id="confirmDialog" class="small">
     <form method="dialog">
-      <h2>¿Eliminar cuenta?</h2>
+      <h2 id="confirmTitle">¿Eliminar cuenta?</h2>
       <p id="confirmText" class="hint"></p>
       <div class="actions">
         <div class="spacer"></div>
-        <button value="no" class="btn subtle">Cancelar</button>
-        <button value="yes" class="btn danger">Eliminar</button>
+        <button value="no" class="btn subtle" id="confirmNo">Cancelar</button>
+        <button value="yes" class="btn danger" id="confirmYes">Eliminar</button>
       </div>
     </form>
   </dialog>
@@ -450,6 +456,7 @@
   <script src="icons.js"></script>
   <script src="sounds.js"></script>
   <script src="theme.js"></script>
+  <script src="duo.js"></script>
   <script src="renderer.js"></script>
   <script src="carousel.js"></script>
 </body>
