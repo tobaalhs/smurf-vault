@@ -1,0 +1,18 @@
+[package]
+name = "sv-core"
+description = "Backend de Smurf Vault: bóveda cifrada, datos de las cuentas y cliente de LoL"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# Bóveda: el mismo formato que la versión Electron (scrypt + AES-256-GCM).
+scrypt = { version = "0.11", default-features = false }
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+uuid = { version = "1", features = ["v4"] }

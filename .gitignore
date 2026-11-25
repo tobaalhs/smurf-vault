@@ -4,6 +4,5 @@ credentials.json
 *.dat
 LeagueAccounts-main/
 
-# Tauri
-src-tauri/target/
-src-tauri/gen/
+# Rust (GPUI)
+/target/

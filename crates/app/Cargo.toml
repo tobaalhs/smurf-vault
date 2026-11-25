@@ -1,0 +1,17 @@
+[package]
+name = "smurf-vault"
+description = "Bóveda cifrada para tus cuentas de Riot, sincronizada con Google Drive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "smurf-vault"
+path = "src/main.rs"
+
+[dependencies]
+sv-core = { path = "../core" }
+gpui-kit = "0.11"
+anyhow.workspace = true
+serde_json.workspace = true

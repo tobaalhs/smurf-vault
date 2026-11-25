@@ -1,0 +1,21 @@
+# Smurf Vault en Rust: `core` es el backend sin interfaz (bóveda, datos, cliente de LoL, Drive...)
+# y `app` es la interfaz en GPUI. La versión Electron (main.js, renderer/) queda como referencia
+# hasta que esta haga todo lo mismo.
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/app"]
+
+[workspace.package]
+version = "0.8.0"
+edition = "2021"
+license = "MIT"
+authors = ["tobaalhs"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+anyhow = "1"
+
+# GPUI y scrypt (N=2^17) son muy lentos sin optimizar: las dependencias se compilan optimizadas en dev.
+[profile.dev.package."*"]
+opt-level = 3
