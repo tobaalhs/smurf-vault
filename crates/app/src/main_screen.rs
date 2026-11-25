@@ -12,7 +12,9 @@ use gpui_kit::component::{h_flex, v_flex, Icon, IconName, IndexPath, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use serde_json::{json, Value};
+use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use sv_core::model::Account;
 use sv_core::ranks::{best_rank, can_duo, rank_label, tier_es, top_rank, DUO_TIERS};
 
@@ -58,6 +60,9 @@ pub struct MainScreen {
     pub(crate) history_mode: &'static str,
     pub(crate) progress_queue: &'static str,
     pub(crate) sessions: BTreeMap<String, String>,
+    /// Cambio de LP bajo el mouse en el gráfico de Progreso, y dónde quedó dibujado el gráfico.
+    pub(crate) lp_hover: Option<usize>,
+    pub(crate) chart_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     list_scroll: ScrollHandle,
     _subs: Vec<Subscription>,
 }
@@ -151,10 +156,23 @@ impl MainScreen {
             history_mode: "lol",
             progress_queue: "solo",
             sessions: BTreeMap::new(),
+            lp_hover: None,
+            chart_bounds: Rc::new(Cell::new(None)),
             list_scroll: ScrollHandle::new(),
             _subs: subs,
         };
         this.refresh_sessions(cx);
+        // Solo en desarrollo: SV_DEV_SELECT y SV_DEV_TAB eligen la cuenta y la pestaña al abrir.
+        #[cfg(debug_assertions)]
+        {
+            this.selected = std::env::var("SV_DEV_SELECT").ok();
+            this.tab = match std::env::var("SV_DEV_TAB").as_deref() {
+                Ok("history") => Tab::History,
+                Ok("progress") => Tab::Progress,
+                Ok("champions") => Tab::Champions,
+                _ => Tab::Summary,
+            };
+        }
         this.keep_selection_visible(cx);
         this.focus.focus(window, cx);
         this
@@ -219,6 +237,7 @@ impl MainScreen {
     pub(crate) fn select(&mut self, id: String, cx: &mut Context<Self>) {
         if self.selected.as_ref() != Some(&id) {
             self.selected = Some(id);
+            self.lp_hover = None;
             cx.notify();
         }
     }

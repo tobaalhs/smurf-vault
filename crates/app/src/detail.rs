@@ -356,16 +356,11 @@ impl MainScreen {
             })
     }
 
-    fn placeholder_tab(&self, text: &'static str, cx: &App) -> Div {
-        let p = palette(cx);
-        div().pt(px(40.)).flex().justify_center().text_color(p.muted).text_size(px(13.)).child(text)
-    }
-
     fn actions(&self, a: &Account, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let can_play = self.sessions.contains_key(&a.id) || (!a.username.is_empty() && !a.password.is_empty());
-        let session = self.vault.read(cx).store.session();
-        let (_, caption) = ui::splash_for(a, session.map(|s| &s.history), |_| String::new());
+        let vault = self.vault.read(cx);
+        let (_, caption) = ui::splash_for(a, vault.store.session().map(|s| &s.history), |c| vault.game.champion(c));
         h_flex()
             .gap(px(10.))
             .py(px(18.))
@@ -399,9 +394,9 @@ impl MainScreen {
         let count = self.vault.read(cx).store.session().and_then(|s| s.history.get(&a.id)).map(|m| m.len()).unwrap_or(0);
         let body = match self.tab {
             Tab::Summary => self.summary(a, cx).into_any_element(),
-            Tab::History => self.placeholder_tab("El historial llega en la próxima parte de esta fase.", cx).into_any_element(),
-            Tab::Progress => self.placeholder_tab("El gráfico de LP llega en la próxima parte de esta fase.", cx).into_any_element(),
-            Tab::Champions => self.placeholder_tab("Las maestrías llegan en la próxima parte de esta fase.", cx).into_any_element(),
+            Tab::History => self.history_tab(a, cx),
+            Tab::Progress => self.progress_tab(a, cx),
+            Tab::Champions => self.champions_tab(a, cx),
         };
         v_flex()
             .flex_1()

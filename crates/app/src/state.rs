@@ -1,15 +1,19 @@
-//! Estado compartido por todas las pantallas: la bóveda (`Store` del core). Es una entidad de GPUI,
-//! así cada vista que la lee se vuelve a dibujar cuando cambia.
+//! Estado compartido por todas las pantallas: la bóveda (`Store` del core) y los datos del juego.
+//! Es una entidad de GPUI, así cada vista que la lee se vuelve a dibujar cuando cambia.
 use gpui_kit::Context;
+use sv_core::gamedata::GameData;
 use sv_core::store::Store;
 
 pub struct Vault {
     pub store: Store,
+    pub game: GameData,
 }
 
 impl Vault {
     pub fn new() -> Self {
-        Self { store: Store::new(Default::default()) }
+        let store = Store::new(Default::default());
+        let game = GameData::load_cache(&store.paths);
+        Self { store, game }
     }
 
     /// Cambia algo de la bóveda y avisa a las vistas para que se redibujen.

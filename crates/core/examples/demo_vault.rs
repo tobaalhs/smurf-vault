@@ -69,6 +69,10 @@ fn main() {
             last_played_at: Some(days_ago(0)),
             favorite: Some(true),
             notes: "Cuenta principal. Correo: demo@example.com".into(),
+            mastery: Some(json!({ "score": 486, "top": [
+                { "champ": 103, "level": 42, "points": 512340 }, { "champ": 157, "level": 18, "points": 214870 },
+                { "champ": 64, "level": 11, "points": 120400 }, { "champ": 222, "level": 7, "points": 64210 },
+                { "champ": 84, "level": 5, "points": 30120 } ] })),
             ..base("a1", "Demo Mid", "LAS", "demo_mid")
         },
         Account {

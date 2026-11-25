@@ -8,6 +8,7 @@ mod http;
 mod lock;
 mod main_screen;
 mod state;
+mod tabs;
 mod theme;
 mod ui;
 
