@@ -24,7 +24,6 @@ mod wheel;
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
-use std::sync::Arc;
 
 fn main() {
     let paths = sv_core::paths::Paths::default();
@@ -38,7 +37,7 @@ fn main() {
     let start_hidden = std::env::args().any(|a| a == desktop::STARTUP_ARG) && sv_core::config::Config::load(&paths).close_to_tray;
     gpui_kit::application().with_assets(assets::Assets).run(move |cx| {
         gpui_kit::init(cx);
-        cx.set_http_client(Arc::new(http::ImageHttpClient::new()));
+        cx.set_http_client(http::ImageHttpClient::install(paths.dir.join("image-cache")));
         let config = sv_core::config::Config::load(&paths);
         theme::Palette::from_theme(&config.theme).apply(cx);
 

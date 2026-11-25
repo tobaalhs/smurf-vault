@@ -241,6 +241,7 @@ impl MainScreen {
         };
         this.refresh_sessions(cx);
         this.start_client_watch(window, cx);
+        this.prefetch_images(cx);
         // Solo en desarrollo: SV_DEV_SELECT y SV_DEV_TAB eligen la cuenta y la pestaña al abrir.
         #[cfg(debug_assertions)]
         {
@@ -564,6 +565,25 @@ impl MainScreen {
                         ),
                 ),
         )
+    }
+
+    /// Deja en la caché del disco, en segundo plano, las imágenes de todas las cuentas (en el orden de
+    /// la rueda): el fondo desenfocado, el splash de su tarjeta y su ícono. Así aparecen al tiro al
+    /// elegirlas. No ocupa RAM: solo se decodifica lo que se muestra.
+    fn prefetch_images(&self, cx: &App) {
+        let store = &self.vault.read(cx).store;
+        let history = store.session().map(|s| &s.history);
+        let mut urls = Vec::new();
+        for a in self.visible(cx) {
+            if let Some(splash) = ui::splash_for(&a, history, |_| String::new()).0 {
+                urls.push(crate::http::blurred(&splash, 2));
+                urls.push(splash.to_string());
+            }
+            if let Some(icon) = a.icon_id {
+                urls.push(ui::profile_icon_url(icon).to_string());
+            }
+        }
+        crate::http::prefetch(urls);
     }
 
     /// Lo que dibuja el fondo: el splash de la cuenta elegida, el color de su liga y si no hay cuentas.
