@@ -75,16 +75,24 @@ impl MainScreen {
 
     fn apply_detected(&mut self, snap: Option<Snapshot>, manual: bool, expected: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(snap) = snap else {
+            // Sin el LoL abierto igual se guarda la sesión del Riot Client, si es de una cuenta conocida.
+            self.vault.update(cx, |v, _| {
+                v.store.capture_current_session();
+            });
             if manual {
                 window.push_notification(Notification::error("No encontré el cliente de LoL abierto con una sesión iniciada"), cx);
             }
             return;
         };
+        self.detect_hits += 1;
+        self.guide = None;
+        let adding = std::mem::take(&mut self.adding_account);
         let name = snap.riot_id();
         let found = self.vault.read(cx).store.find_detected(&snap);
         let Some(id) = found else {
             // Una cuenta que no está guardada: se ofrece vincularla (una vez, salvo que se pida).
-            if manual || !self.seen_puuids.contains(&snap.puuid) {
+            self.detected_adding = adding;
+            if manual || adding || !self.seen_puuids.contains(&snap.puuid) {
                 self.seen_puuids.insert(snap.puuid.clone());
                 self.detected = Some(snap);
             }
@@ -98,9 +106,18 @@ impl MainScreen {
             let label = acc.map(|a| if a.label.is_empty() { a.username.clone() } else { a.label.clone() }).unwrap_or_default();
             (acc.is_some_and(|a| a.puuid.as_deref() != Some(snap.puuid.as_str())), label)
         };
+        let had_session = self.vault.read(cx).store.has_session(&id);
         if let Err(e) = self.vault.update(cx, |v, cx| v.change(cx, |s| s.link_snapshot(&id, &snap))) {
             window.push_notification(Notification::error(e), cx);
             return;
+        }
+        // Se guarda su sesión del Riot Client para entrar después con un clic.
+        let saved = self.vault.update(cx, |v, cx| v.change(cx, |s| s.capture_session(&id, &sv_core::switcher::read_session())));
+        if saved && !had_session {
+            window.push_notification(
+                Notification::success(format!("Sesión de {} guardada: la próxima vez entras con un clic", snap.game_name)),
+                cx,
+            );
         }
         if auto_linked {
             window.push_notification(Notification::success(format!("{name} reconocida y vinculada a \"{label}\"")), cx);
@@ -147,7 +164,14 @@ impl MainScreen {
     /// Vincula la cuenta detectada a una guardada (desde el diálogo "¿Qué cuenta es?").
     pub(crate) fn link_detected(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(snap) = self.detected.take() else { return };
-        match self.vault.update(cx, |v, cx| v.change(cx, |s| s.link_snapshot(id, &snap))) {
+        let res = self.vault.update(cx, |v, cx| {
+            v.change(cx, |s| {
+                s.link_snapshot(id, &snap)?;
+                s.capture_session(id, &sv_core::switcher::read_session());
+                Ok::<_, String>(())
+            })
+        });
+        match res {
             Ok(_) => window.push_notification(Notification::success("Cuenta vinculada"), cx),
             Err(e) => window.push_notification(Notification::error(e), cx),
         }
@@ -168,6 +192,7 @@ impl MainScreen {
             v.change(cx, |s| {
                 let id = s.save_account(input)?;
                 s.link_snapshot(&id, &snap)?;
+                s.capture_session(&id, &sv_core::switcher::read_session());
                 Ok::<_, String>(id)
             })
         });
@@ -188,49 +213,93 @@ impl MainScreen {
     pub(crate) fn client_overlays(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let p = palette(cx);
         let mut out = Vec::new();
+        // Arriba del detalle, sin tapar la búsqueda de la izquierda: la guía del inicio de sesión y
+        // el aviso de cuenta detectada sin vincular.
+        let mut top: Vec<AnyElement> = Vec::new();
+        if let Some(text) = self.guide.clone() {
+            top.push(
+                h_flex()
+                    .id("guide-banner")
+                    .occlude()
+                    .w_full()
+                    .gap(px(12.))
+                    .py(px(10.))
+                    .pl(px(14.))
+                    .pr(px(8.))
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(alpha(p.gold, 0.35))
+                    .bg(p.surface)
+                    .shadow_lg()
+                    .child(Icon::empty().path(assets::icon("log-in")).text_color(p.gold))
+                    .child(div().flex_1().min_w_0().text_size(px(13.)).text_color(p.text_2).child(text))
+                    .child(Button::new("guide-close").ghost().small().icon(Icon::new(IconName::Close)).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.guide = None;
+                            this.adding_account = false;
+                            cx.notify();
+                        },
+                    )))
+                    .into_any_element(),
+            );
+        }
         if let Some(snap) = &self.detected {
             let who = format!("{} · {} · nivel {}", snap.riot_id(), snap.server, snap.level.unwrap_or(0));
-            // Sobre la parte de arriba del detalle, sin tapar la búsqueda de la izquierda.
+            let adding = self.detected_adding;
+            let intro = if adding { "Iniciaste sesión con una cuenta nueva. ¿La guardamos?" } else { "En el cliente está abierta una cuenta sin vincular:" };
+            top.push(
+                h_flex()
+                    .id("detect-banner")
+                    .occlude()
+                    .w_full()
+                    .gap(px(12.))
+                    .py(px(8.))
+                    .pl(px(14.))
+                    .pr(px(8.))
+                    .rounded(px(10.))
+                    .border_1()
+                    .border_color(alpha(p.cyan, 0.25))
+                    .bg(p.surface)
+                    .shadow_lg()
+                    .child(Icon::empty().path(assets::icon("gamepad-2")).text_color(p.cyan))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().text_size(px(12.)).text_color(p.text_2).child(intro))
+                            .child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(who)),
+                    )
+                    .when(adding, |d| {
+                        d.child(Button::new("banner-link").small().label("Es una que ya tengo").on_click(cx.listener(
+                            |this, _, window, cx| this.open_link_dialog(window, cx),
+                        )))
+                        .child(Button::new("banner-new").primary().small().label("Guardar cuenta").on_click(cx.listener(
+                            |this, _, window, cx| this.save_detected_as_new(window, cx),
+                        )))
+                    })
+                    .when(!adding, |d| {
+                        d.child(Button::new("banner-link").primary().small().label("Vincular").on_click(cx.listener(
+                            |this, _, window, cx| this.open_link_dialog(window, cx),
+                        )))
+                    })
+                    .child(Button::new("banner-close").ghost().small().icon(Icon::new(IconName::Close)).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.detected = None;
+                            cx.notify();
+                        },
+                    )))
+                    .into_any_element(),
+            );
+        }
+        if !top.is_empty() {
             out.push(
-                div()
+                v_flex()
                     .absolute()
                     .top(px(14.))
                     .left(px(self.side_w + 22.))
                     .right(px(22.))
-                    .flex()
-                    .justify_center()
-                    .child(
-                        h_flex()
-                            .id("detect-banner")
-                            .occlude()
-                            .w_full()
-                            .gap(px(12.))
-                            .py(px(8.))
-                            .pl(px(14.))
-                            .pr(px(8.))
-                            .rounded(px(10.))
-                            .border_1()
-                            .border_color(alpha(p.cyan, 0.25))
-                            .bg(p.surface)
-                            .shadow_lg()
-                            .child(Icon::empty().path(assets::icon("gamepad-2")).text_color(p.cyan))
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(div().text_size(px(12.)).text_color(p.text_2).child("En el cliente está abierta una cuenta sin vincular:"))
-                                    .child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(who)),
-                            )
-                            .child(Button::new("banner-link").primary().small().label("Vincular").on_click(cx.listener(
-                                |this, _, window, cx| this.open_link_dialog(window, cx),
-                            )))
-                            .child(Button::new("banner-close").ghost().small().icon(Icon::new(IconName::Close)).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.detected = None;
-                                    cx.notify();
-                                },
-                            ))),
-                    )
+                    .gap(px(8.))
+                    .children(top)
                     .into_any_element(),
             );
         }

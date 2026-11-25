@@ -79,12 +79,14 @@ pub struct Store {
     pub paths: Paths,
     pub config: Config,
     session: Option<Session>,
+    /// Huella de la última sesión de Riot guardada por cuenta, para no reescribir lo mismo.
+    saved_hash: std::collections::HashMap<String, u64>,
 }
 
 impl Store {
     pub fn new(paths: Paths) -> Self {
         let config = Config::load(&paths);
-        Self { paths, config, session: None }
+        Self { paths, config, session: None, saved_hash: Default::default() }
     }
 
     pub fn save_config(&self) -> Result<(), String> {
@@ -550,8 +552,47 @@ impl Store {
         write_atomic(&self.paths.session(id), &bytes).map_err(|e| e.to_string())
     }
 
-    pub fn delete_session(&self, id: &str) {
+    pub fn delete_session(&mut self, id: &str) {
         let _ = std::fs::remove_file(self.paths.session(id));
+        self.saved_hash.remove(id);
+    }
+
+    /// Guarda la sesión abierta en el Riot Client (`files`) como la de la cuenta `id`, si tiene
+    /// "Mantener sesión iniciada" y no es de otra cuenta. No reescribe lo mismo. true si quedó guardada.
+    pub fn capture_session(&mut self, id: &str, files: &Map<String, Value>) -> bool {
+        use std::hash::{Hash, Hasher};
+        if !crate::switcher::is_remembered(files) {
+            return false;
+        }
+        let Some(acc) = self.data().and_then(|d| d.account(id)) else { return false };
+        if crate::switcher::session_owner(files).is_some_and(|owner| !acc.owns_puuid(&owner)) {
+            return false; // sería guardarla en la cuenta equivocada
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        Value::Object(files.clone()).to_string().hash(&mut h);
+        let hash = h.finish();
+        if self.saved_hash.get(id) == Some(&hash) {
+            return true;
+        }
+        if self.save_session(id, &Value::Object(files.clone())).is_err() {
+            return false;
+        }
+        self.saved_hash.insert(id.to_string(), hash);
+        true
+    }
+
+    /// Guarda la sesión que tiene ahora el Riot Client en la cuenta dueña (según su token), aunque el
+    /// LoL esté cerrado: Riot renueva el token y la copia vieja deja de servir. Devuelve esa cuenta.
+    pub fn capture_current_session(&mut self) -> Option<String> {
+        self.session.as_ref()?;
+        let files = crate::switcher::read_session();
+        if !crate::switcher::is_remembered(&files) {
+            return None;
+        }
+        let owner = crate::switcher::session_owner(&files)?;
+        let id = self.data()?.accounts.iter().find(|a| a.owns_puuid(&owner))?.id.clone();
+        self.capture_session(&id, &files);
+        Some(id)
     }
 }
 

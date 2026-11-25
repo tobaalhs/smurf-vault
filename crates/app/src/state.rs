@@ -18,13 +18,15 @@ pub struct Vault {
     /// Hay una actualización con la API de Riot en curso (y su avance, si son varias cuentas).
     pub riot_busy: bool,
     pub riot_progress: Option<RiotProgress>,
+    /// Se pidió "Abrir login de Riot" (agregar cuenta); la pantalla principal lo atiende.
+    pub open_login_requested: bool,
 }
 
 impl Vault {
     pub fn new() -> Self {
         let store = Store::new(Default::default());
         let game = GameData::load_cache(&store.paths);
-        Self { store, game, riot_busy: false, riot_progress: None }
+        Self { store, game, riot_busy: false, riot_progress: None, open_login_requested: false }
     }
 
     /// Cambia algo de la bóveda y avisa a las vistas para que se redibujen.

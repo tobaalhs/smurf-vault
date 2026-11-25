@@ -175,17 +175,6 @@ fn play_triangle(o: Point<Pixels>, size: f32) -> Option<Path> {
 }
 
 impl MainScreen {
-    pub(crate) fn play_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected.is_none() {
-            return;
-        }
-        crate::sounds::play_chord();
-        window.push_notification(
-            Notification::info("Jugar con un clic llega en la fase de cambio de cuenta (sesiones guardadas e inyección)."),
-            cx,
-        );
-    }
-
     fn toggle_favorite(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
         let result = self.vault.update(cx, |v, cx| {
             let fav = v.store.data().and_then(|d| d.account(&id)).is_some_and(|a| a.is_favorite());
@@ -453,6 +442,8 @@ impl MainScreen {
             .flex_none()
             .mt(px(if hovered { -2. } else { 0. }))
             .cursor_pointer()
+            // Mientras se cambia de cuenta, el botón se apaga un poco (como .play-big.loading).
+            .when(self.switching, |d| d.opacity(0.65).cursor_default())
             .child(div().absolute().top(px(4.)).bottom(px(4.)).left(px(10.)).right(px(10.)).rounded(px(9.)).shadow(vec![BoxShadow { inset: false,
                 color: glow,
                 offset: point(px(0.), px(10.)),

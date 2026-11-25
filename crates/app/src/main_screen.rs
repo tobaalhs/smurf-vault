@@ -91,7 +91,17 @@ pub struct MainScreen {
     pub(crate) detecting: bool,
     pub(crate) seen_puuids: std::collections::HashSet<String>,
     pub(crate) detected: Option<sv_core::snapshot::Snapshot>,
+    /// El aviso de cuenta detectada viene de "Abrir login de Riot" (se ofrece guardarla como nueva).
+    pub(crate) detected_adding: bool,
     pub(crate) client_tasks: Vec<Task<()>>,
+    /// Cambio de cuenta (switch.rs): en curso, guía de arriba con el paso actual, si se está
+    /// agregando una cuenta nueva por el login, cuántas veces se encontró el cliente y la búsqueda
+    /// rápida después de cambiar.
+    pub(crate) switching: bool,
+    pub(crate) guide: Option<SharedString>,
+    pub(crate) adding_account: bool,
+    pub(crate) detect_hits: u64,
+    pub(crate) detect_soon_task: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
 
@@ -150,8 +160,13 @@ impl MainScreen {
         let volume_state = cx.new(|_| SliderState::new().min(0.).max(100.).step(5.).default_value((volume * 100.).round()));
 
         let subs = vec![
-            cx.observe(&vault, |this, _, cx| {
+            cx.observe_in(&vault, window, |this, vault, window, cx| {
                 this.refresh_sessions(cx);
+                // "Abrir login de Riot" se pide desde el diálogo de agregar, que no conoce esta pantalla.
+                let requested = vault.update(cx, |v, _| std::mem::take(&mut v.open_login_requested));
+                if requested {
+                    this.open_riot_login(window, cx);
+                }
                 cx.notify();
             }),
             cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, window, cx| match ev {
@@ -225,7 +240,13 @@ impl MainScreen {
             detecting: false,
             seen_puuids: Default::default(),
             detected: None,
+            detected_adding: false,
             client_tasks: Vec::new(),
+            switching: false,
+            guide: None,
+            adding_account: false,
+            detect_hits: 0,
+            detect_soon_task: None,
             _subs: subs,
         };
         this.refresh_sessions(cx);
@@ -241,6 +262,10 @@ impl MainScreen {
                 _ => Tab::Summary,
             };
             // SV_DEV_DETECTED simula una cuenta abierta en el cliente que no está guardada.
+            if std::env::var("SV_DEV_DETECTED").as_deref() == Ok("adding") {
+                this.detected_adding = true;
+                this.guide = Some("Escribiendo tus credenciales…".into());
+            }
             if std::env::var("SV_DEV_DETECTED").is_ok() {
                 this.detected = Some(sv_core::snapshot::Snapshot {
                     puuid: "dev".into(),

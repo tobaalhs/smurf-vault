@@ -10,6 +10,7 @@ mod http;
 mod lock;
 mod main_screen;
 mod sounds;
+mod switch;
 mod state;
 mod tabs;
 mod theme;

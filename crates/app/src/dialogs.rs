@@ -252,7 +252,7 @@ pub fn open_account(vault: Entity<Vault>, acc: Option<Account>, window: &mut Win
 pub fn open_add(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, cx| {
         let p = palette(cx);
-        let vault = vault.clone();
+        let (vault, login) = (vault.clone(), vault.clone());
         let step = |n: &'static str, text: &'static str| {
             h_flex()
                 .gap(px(10.))
@@ -299,8 +299,12 @@ pub fn open_add(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
                             .primary()
                             .icon(Icon::empty().path(assets::icon("log-in")))
                             .label("Abrir login de Riot")
-                            .on_click(|_, window, cx| {
-                                window.push_notification(Notification::info("Abrir el login de Riot llega en la fase de cambio de cuenta."), cx)
+                            .on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                login.update(cx, |v, cx| {
+                                    v.open_login_requested = true;
+                                    cx.notify();
+                                });
                             }),
                     ),
             )
