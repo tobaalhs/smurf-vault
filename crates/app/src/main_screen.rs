@@ -1,13 +1,16 @@
-//! Pantalla principal: las cuentas en una lista a la izquierda (búsqueda, orden y filtro "dúo con
-//! amigo") y la elegida en detalle a la derecha, con el splash de su fondo de perfil detrás.
+//! Pantalla principal: la rueda de cuentas a la izquierda (búsqueda, orden y filtro "dúo con amigo")
+//! y la elegida en detalle a la derecha, con el splash de su fondo de perfil detrás.
 //! Igual que la vista carrusel de la versión Electron (renderer/carousel.js).
 use crate::assets;
 use crate::state::Vault;
-use crate::theme::palette;
+use crate::theme::{palette, Palette};
 use crate::ui::{self, alpha};
+use crate::wheel::WheelState;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::popover::Popover;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
 use gpui_kit::component::{h_flex, v_flex, Icon, IconName, IndexPath, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -15,8 +18,9 @@ use serde_json::{json, Value};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::time::Instant;
 use sv_core::model::Account;
-use sv_core::ranks::{best_rank, can_duo, rank_label, tier_es, top_rank, DUO_TIERS};
+use sv_core::ranks::{best_rank, can_duo, tier_es, DUO_TIERS};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SortKey {
@@ -45,6 +49,16 @@ pub enum Tab {
 
 type Choice = SelectState<Vec<SharedString>>;
 
+/// El fondo sigue un poco al mouse (actual y destino, en px).
+#[derive(Default)]
+struct Parallax {
+    x: f32,
+    y: f32,
+    tx: f32,
+    ty: f32,
+    last: Option<Instant>,
+}
+
 pub struct MainScreen {
     pub(crate) vault: Entity<Vault>,
     focus: FocusHandle,
@@ -52,6 +66,7 @@ pub struct MainScreen {
     sort_select: Entity<Choice>,
     tier_select: Entity<Choice>,
     div_select: Entity<Choice>,
+    volume: Entity<SliderState>,
     sort: SortKey,
     friend_tier: String,
     friend_div: String,
@@ -63,7 +78,12 @@ pub struct MainScreen {
     /// Cambio de LP bajo el mouse en el gráfico de Progreso, y dónde quedó dibujado el gráfico.
     pub(crate) lp_hover: Option<usize>,
     pub(crate) chart_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
-    list_scroll: ScrollHandle,
+    pub(crate) wheel: WheelState,
+    /// El mouse está sobre el botón Jugar (se aclara y sube un poco).
+    pub(crate) play_hover: bool,
+    /// Ancho útil del panel de detalle en el último dibujo.
+    pub(crate) detail_w: f32,
+    parallax: Parallax,
     _subs: Vec<Subscription>,
 }
 
@@ -74,6 +94,21 @@ fn riot_id_or_user(a: &Account) -> String {
     } else {
         id
     }
+}
+
+/// Tecla dibujada como en el teclado (Ctrl F, ↑, Enter…).
+pub(crate) fn kbd(text: &'static str, p: &Palette) -> Div {
+    div()
+        .px(px(5.))
+        .rounded(px(4.))
+        .border_1()
+        .border_b_2()
+        .border_color(p.border_strong)
+        .bg(alpha(p.surface_2, 0.8))
+        .text_size(px(10.5))
+        .line_height(px(15.))
+        .text_color(p.muted)
+        .child(text)
 }
 
 impl MainScreen {
@@ -88,6 +123,10 @@ impl MainScreen {
         let friend = extra.get("friendElo").cloned().unwrap_or(Value::Null);
         let friend_tier = friend["tier"].as_str().filter(|t| DUO_TIERS.contains(t)).unwrap_or("").to_string();
         let friend_div = friend["div"].as_str().filter(|d| DIVISIONS.contains(d)).unwrap_or("I").to_string();
+        // Sonido: encendido y volumen se recuerdan en este PC.
+        let sound_on = extra.get("sound").and_then(Value::as_str) != Some("off");
+        let volume = extra.get("soundVolume").and_then(Value::as_f64).unwrap_or(0.5) as f32;
+        crate::sounds::configure(sound_on, volume);
 
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Buscar nick, usuario, nota…"));
         let sort_labels: Vec<SharedString> = SORTS.iter().map(|(_, _, l)| SharedString::from(*l)).collect();
@@ -100,6 +139,7 @@ impl MainScreen {
         let divs: Vec<SharedString> = DIVISIONS.iter().map(|d| SharedString::from(*d)).collect();
         let div_ix = DIVISIONS.iter().position(|d| *d == friend_div).unwrap_or(0);
         let div_select = cx.new(|cx| SelectState::new(divs, Some(IndexPath::new(div_ix)), window, cx));
+        let volume_state = cx.new(|_| SliderState::new().min(0.).max(100.).step(5.).default_value((volume * 100.).round()));
 
         let subs = vec![
             cx.observe(&vault, |this, _, cx| {
@@ -119,6 +159,7 @@ impl MainScreen {
                     if let Some((s, _, _)) = SORTS.iter().find(|(_, _, l)| *l == label.as_ref()) {
                         this.sort = *s;
                         this.save_prefs(cx);
+                        this.keep_selection_visible(cx);
                         cx.notify();
                     }
                 }
@@ -140,6 +181,15 @@ impl MainScreen {
                     cx.notify();
                 }
             }),
+            cx.subscribe(&volume_state, |this, _, ev: &SliderEvent, cx| {
+                let SliderEvent::Change(SliderValue::Single(v)) = ev else { return };
+                let (enabled, _) = crate::sounds::state();
+                let vol = v / 100.;
+                // Subir el volumen con el sonido apagado lo vuelve a encender.
+                crate::sounds::configure(enabled || vol > 0., vol);
+                this.save_prefs(cx);
+                cx.notify();
+            }),
         ];
         let mut this = Self {
             vault,
@@ -148,6 +198,7 @@ impl MainScreen {
             sort_select,
             tier_select,
             div_select,
+            volume: volume_state,
             sort,
             friend_tier,
             friend_div,
@@ -158,7 +209,10 @@ impl MainScreen {
             sessions: BTreeMap::new(),
             lp_hover: None,
             chart_bounds: Rc::new(Cell::new(None)),
-            list_scroll: ScrollHandle::new(),
+            wheel: WheelState::default(),
+            play_hover: false,
+            detail_w: 600.,
+            parallax: Parallax::default(),
             _subs: subs,
         };
         this.refresh_sessions(cx);
@@ -187,6 +241,10 @@ impl MainScreen {
             }
         }
         this.keep_selection_visible(cx);
+        let list = this.visible(cx);
+        if let Some(i) = list.iter().position(|a| Some(&a.id) == this.selected.as_ref()) {
+            this.wheel_to(i, true);
+        }
         this.focus.focus(window, cx);
         this
     }
@@ -195,13 +253,17 @@ impl MainScreen {
         self.sessions = self.vault.read(cx).store.session_index();
     }
 
-    /// El orden y el filtro de dúo se recuerdan en este PC (config.json).
+    /// El orden, el filtro de dúo y el sonido se recuerdan en este PC (config.json).
     fn save_prefs(&self, cx: &mut Context<Self>) {
         let sort = SORTS.iter().find(|(s, _, _)| *s == self.sort).map(|(_, k, _)| *k).unwrap_or("rank");
         let friend = json!({ "tier": self.friend_tier, "div": self.friend_div });
+        let (enabled, volume) = crate::sounds::state();
         self.vault.update(cx, |v, _| {
-            v.store.config.extra.insert("sort".into(), json!(sort));
-            v.store.config.extra.insert("friendElo".into(), friend);
+            let extra = &mut v.store.config.extra;
+            extra.insert("sort".into(), json!(sort));
+            extra.insert("friendElo".into(), friend);
+            extra.insert("sound".into(), json!(if enabled { "on" } else { "off" }));
+            extra.insert("soundVolume".into(), json!(volume));
             let _ = v.store.save_config();
         });
     }
@@ -239,20 +301,30 @@ impl MainScreen {
         list
     }
 
-    /// Si la cuenta elegida ya no está en la lista (búsqueda, filtro, borrada), elige la primera.
+    /// Si la cuenta elegida ya no está en la lista (búsqueda, filtro, borrada), elige la primera de
+    /// golpe; si sigue, la rueda va a su nueva posición.
     fn keep_selection_visible(&mut self, cx: &mut Context<Self>) {
         let list = self.visible(cx);
-        if !list.iter().any(|a| Some(&a.id) == self.selected.as_ref()) {
-            self.selected = list.first().map(|a| a.id.clone());
+        match list.iter().position(|a| Some(&a.id) == self.selected.as_ref()) {
+            Some(i) => self.wheel_to(i, false),
+            None => {
+                self.selected = list.first().map(|a| a.id.clone());
+                self.wheel_to(0, true);
+            }
         }
     }
 
+    /// Elige una cuenta: la rueda va hacia ella y suena el pop.
     pub(crate) fn select(&mut self, id: String, cx: &mut Context<Self>) {
+        let list = self.visible(cx);
+        let Some(i) = list.iter().position(|a| a.id == id) else { return };
+        self.wheel_to(i, false);
         if self.selected.as_ref() != Some(&id) {
             self.selected = Some(id);
             self.lp_hover = None;
-            cx.notify();
+            crate::sounds::pop();
         }
+        cx.notify();
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -262,9 +334,7 @@ impl MainScreen {
         }
         let i = list.iter().position(|a| Some(&a.id) == self.selected.as_ref()).unwrap_or(0) as isize;
         let next = (i + delta).clamp(0, list.len() as isize - 1) as usize;
-        self.selected = Some(list[next].id.clone());
-        self.list_scroll.scroll_to_item(next);
-        cx.notify();
+        self.select(list[next].id.clone(), cx);
     }
 
     pub(crate) fn selected_account(&self, cx: &App) -> Option<Account> {
@@ -283,104 +353,54 @@ impl MainScreen {
         cx.stop_propagation();
     }
 
-    fn list_item(&self, a: &Account, cx: &mut Context<Self>) -> impl IntoElement {
+    fn sound_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let selected = self.selected.as_ref() == Some(&a.id);
-        let tier = ui::account_tier_color(a);
-        let store = &self.vault.read(cx).store;
-        let (splash, _) = ui::splash_for(a, store.session().map(|s| &s.history), |_| String::new());
-        let saved = self.sessions.contains_key(&a.id);
-        let sub = [a.server.clone(), a.label.clone(), a.last_played_at.as_deref().map(|t| ui::ago(Some(t))).unwrap_or_default()]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(" · ");
-        let id = a.id.clone();
-
-        let name = h_flex()
-            .gap(px(5.))
-            .min_w_0()
-            .text_size(px(15.5))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(p.text)
-            .when(a.is_favorite(), |d| d.child(Icon::new(IconName::StarFill).xsmall().text_color(p.gold)))
-            .map(|d| {
-                if a.game_name.is_empty() {
-                    d.child(div().truncate().child(if a.label.is_empty() { a.username.clone() } else { a.label.clone() }))
-                } else {
-                    d.child(div().truncate().child(a.game_name.clone()))
-                        .child(div().text_color(p.muted).font_weight(FontWeight::MEDIUM).text_size(px(13.)).child(format!("#{}", a.tag_line)))
-                }
-            });
-
-        let tier_block = if let Some((_, short, _)) = ui::ban_info(a) {
-            h_flex()
-                .gap(px(5.))
-                .text_color(p.loss)
-                .child(Icon::new(IconName::Ban).small())
-                .child(div().font_weight(FontWeight::BOLD).text_size(px(13.)).child(short))
-                .into_any_element()
-        } else if let Some(r) = top_rank(a) {
-            h_flex()
-                .gap(px(6.))
-                .child(
-                    v_flex()
-                        .items_end()
-                        .child(div().text_size(px(13.)).font_weight(FontWeight::BOLD).text_color(ui::tier_color(Some(&r.tier))).child(rank_label(&r.tier, &r.division)))
-                        .child(div().text_size(px(11.5)).text_color(p.muted).child(format!("{} LP", r.lp))),
-                )
-                .child(img(ui::rank_emblem(r)).size(px(40.)).object_fit(ObjectFit::Contain))
-                .into_any_element()
-        } else {
-            div().text_size(px(13.)).font_weight(FontWeight::BOLD).text_color(p.muted).child("Sin rango").into_any_element()
-        };
-
-        div()
-            .id(SharedString::from(format!("acc-{}", a.id)))
-            .relative()
-            .h(px(74.))
-            .flex_none()
-            .rounded(px(10.))
-            .overflow_hidden()
-            .border_1()
-            .cursor_pointer()
-            .map(|d| {
-                if selected {
-                    d.bg(alpha(p.surface_2, 0.92)).border_color(tier).shadow_lg()
-                } else {
-                    d.bg(alpha(p.surface, 0.86)).border_color(p.border_strong).hover(|s| s.border_color(alpha(p.text, 0.24)))
-                }
-            })
-            .when_some(splash, |d, url| {
-                d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover).opacity(if selected { 0.4 } else { 0.15 }))
-            })
-            .child(div().absolute().top_0().bottom_0().right_0().w(px(5.)).bg(alpha(tier, 0.9)))
-            .child(
+        let (enabled, volume) = crate::sounds::state();
+        let on = enabled && volume > 0.;
+        let icon = || Icon::empty().path(assets::icon(if on { "volume-2" } else { "volume-x" }));
+        let label: SharedString = if enabled { format!("{}%", (volume * 100.).round()) } else { "Silencio".to_string() }.into();
+        let slider = self.volume.clone();
+        let view = cx.entity().downgrade();
+        Popover::new("sound")
+            .anchor(Anchor::TopRight)
+            .trigger(Button::new("sound-btn").icon(icon().text_color(if on { p.text_2 } else { p.muted })).tooltip(if on {
+                format!("Sonidos al {}% · clic para ajustar", (volume * 100.).round())
+            } else {
+                "Sonidos silenciados · clic para ajustar".to_string()
+            }))
+            .content(move |_, _, cx| {
+                let p = palette(cx);
+                let view = view.clone();
                 h_flex()
-                    .relative()
-                    .size_full()
-                    .gap(px(14.))
-                    .pl(px(18.))
-                    .pr(px(22.))
-                    .child(ui::avatar(a, 50., cx))
+                    .gap(px(10.))
+                    .p(px(8.))
+                    .w(px(230.))
                     .child(
-                        v_flex().flex_1().min_w_0().gap(px(3.)).child(name).child(
-                            h_flex()
-                                .gap(px(6.))
-                                .text_size(px(12.))
-                                .text_color(p.muted)
-                                .child(div().size(px(7.)).rounded_full().bg(if saved { p.ok } else { alpha(p.muted, 0.5) }))
-                                .child(div().truncate().child(sub)),
-                        ),
+                        Button::new("sound-mute")
+                            .ghost()
+                            .small()
+                            .icon(Icon::empty().path(assets::icon(if on { "volume-2" } else { "volume-x" })))
+                            .tooltip(if on { "Silenciar" } else { "Activar sonidos" })
+                            .on_click(move |_, _, cx| {
+                                let (enabled, volume) = crate::sounds::state();
+                                let now_on = !(enabled && volume > 0.);
+                                // Estaba en 0: vuelve a un volumen audible.
+                                crate::sounds::configure(now_on, if now_on && volume == 0. { 0.5 } else { volume });
+                                crate::sounds::pop();
+                                view.update(cx, |this, cx| {
+                                    this.save_prefs(cx);
+                                    cx.notify();
+                                })
+                                .ok();
+                            }),
                     )
-                    .child(tier_block),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.select(id.clone(), cx)))
+                    .child(div().flex_1().child(Slider::new(&slider)))
+                    .child(div().w(px(52.)).text_size(px(12.)).text_color(p.text_2).child(label.clone()))
+            })
     }
 
-    fn side(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn side(&mut self, side_w: f32, list: &[Account], cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let list = self.visible(cx);
         let total = self.vault.read(cx).store.data().map(|d| d.accounts.len()).unwrap_or(0);
         let count = if list.is_empty() && self.friend_active() {
             let div = if self.friend_tier == "MASTER" { String::new() } else { format!(" {}", self.friend_div) };
@@ -390,11 +410,11 @@ impl MainScreen {
         } else {
             format!("{} de {} cuentas", list.len(), total)
         };
-        let items: Vec<AnyElement> = list.iter().map(|a| self.list_item(a, cx).into_any_element()).collect();
         let friend_on = self.friend_active();
+        let wheel = self.wheel_view(list, side_w, cx);
 
         v_flex()
-            .w(px(440.))
+            .w(px(side_w))
             .flex_none()
             .h_full()
             .min_h_0()
@@ -408,16 +428,18 @@ impl MainScreen {
                     .child(
                         h_flex()
                             .gap(px(8.))
-                            .child(div().flex_1().child(Input::new(&self.search).prefix(Icon::new(IconName::Search).text_color(p.muted)).cleanable(true)))
-                            .child(div().w(px(150.)).child(Select::new(&self.sort_select))),
+                            .child(div().flex_1().child(
+                                Input::new(&self.search).prefix(Icon::new(IconName::Search).text_color(p.muted)).suffix(kbd("Ctrl F", &p)),
+                            ))
+                            .child(div().w(px(150.)).child(Select::new(&self.sort_select)))
+                            .child(self.sound_button(cx)),
                     )
                     .child(
                         h_flex()
                             .gap(px(8.))
-                            .text_size(px(12.))
-                            .child(div().text_color(if friend_on { p.gold } else { p.muted }).child("Dúo con amigo"))
-                            .child(div().w(px(130.)).child(Select::new(&self.tier_select).small()))
-                            .when(friend_on && self.friend_tier != "MASTER", |d| d.child(div().w(px(70.)).child(Select::new(&self.div_select).small())))
+                            .child(div().flex_none().text_size(px(12.5)).text_color(if friend_on { p.gold_hi } else { p.text_2 }).child("Dúo con amigo"))
+                            .child(div().flex_1().child(Select::new(&self.tier_select)))
+                            .when(friend_on && self.friend_tier != "MASTER", |d| d.child(div().w(px(76.)).child(Select::new(&self.div_select))))
                             .when(friend_on, |d| {
                                 d.child(
                                     Button::new("friend-clear")
@@ -436,20 +458,19 @@ impl MainScreen {
                             }),
                     ),
             )
-            .child(h_flex().justify_between().pt(px(2.)).pb(px(6.)).pl(px(20.)).pr(px(30.)).text_size(px(12.)).text_color(p.muted).child(count))
             .child(
-                div()
-                    .id("account-list")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.list_scroll)
-                    .child(
-                        v_flex().gap(px(10.)).pl(px(18.)).pr(px(30.)).pb(px(12.)).children(items).when(list.is_empty(), |d| {
-                            d.child(div().p(px(20.)).text_color(p.muted).text_size(px(13.)).child("Ninguna cuenta coincide con la búsqueda"))
-                        }),
-                    ),
+                h_flex()
+                    .justify_between()
+                    .pt(px(2.))
+                    .pb(px(4.))
+                    .pl(px(20.))
+                    .pr(px(30.))
+                    .text_size(px(12.))
+                    .text_color(p.muted)
+                    .child(count)
+                    .child(self.wheel_position_label(list.len())),
             )
+            .child(wheel)
             .child(
                 h_flex()
                     .gap(px(14.))
@@ -458,14 +479,15 @@ impl MainScreen {
                     .px(px(20.))
                     .text_size(px(11.5))
                     .text_color(p.muted)
-                    .child("↑ ↓ elegir")
-                    .child("Enter jugar")
-                    .child("Ctrl F buscar"),
+                    .child(h_flex().gap(px(4.)).child(kbd("↑", &p)).child(kbd("↓", &p)).child("elegir"))
+                    .child(h_flex().gap(px(4.)).child(kbd("Enter", &p)).child("jugar"))
+                    .child("escribe para buscar"),
             )
     }
 
     fn empty_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
+        let (add, import) = (self.vault.clone(), self.vault.clone());
         div().size_full().flex().items_center().justify_center().child(
             v_flex()
                 .items_center()
@@ -480,8 +502,7 @@ impl MainScreen {
                         .text_size(px(13.))
                         .child("Agrega tu primera cuenta iniciando sesión en el cliente, o importa la lista que tenías en un txt."),
                 )
-                .child({
-                    let (add, import) = (self.vault.clone(), self.vault.clone());
+                .child(
                     h_flex()
                         .gap(px(8.))
                         .mt(px(6.))
@@ -497,9 +518,25 @@ impl MainScreen {
                                 .icon(Icon::empty().path(assets::icon("upload")))
                                 .label("Importar txt")
                                 .on_click(move |_, window, cx| crate::dialogs::open_import(import.clone(), window, cx)),
-                        )
-                }),
+                        ),
+                ),
         )
+    }
+
+    /// Avanza el parallax del fondo hacia donde está el mouse.
+    fn advance_parallax(&mut self, window: &mut Window) {
+        let p = &mut self.parallax;
+        if (p.tx - p.x).abs() < 0.05 && (p.ty - p.y).abs() < 0.05 {
+            p.last = None;
+            return;
+        }
+        let now = Instant::now();
+        let dt = p.last.map(|t| now.duration_since(t).as_secs_f32()).unwrap_or(1. / 60.).min(0.1);
+        p.last = Some(now);
+        let k = 1. - (1. - 0.06f32).powf(dt * 60.);
+        p.x += (p.tx - p.x) * k;
+        p.y += (p.ty - p.y) * k;
+        window.request_animation_frame();
     }
 }
 
@@ -509,48 +546,83 @@ impl Focusable for MainScreen {
     }
 }
 
+/// Franja de degradado horizontal entre dos posiciones (en fracción del ancho).
+fn band(from: f32, to: f32, a: Hsla, b: Hsla) -> Div {
+    div().absolute().top_0().bottom_0().left(relative(from)).w(relative(to - from)).bg(linear_gradient(90., linear_color_stop(a, 0.), linear_color_stop(b, 1.)))
+}
+
 impl Render for MainScreen {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let has_accounts = self.vault.read(cx).store.data().is_some_and(|d| !d.accounts.is_empty());
         if !has_accounts {
             return div().size_full().child(self.empty_view(cx)).into_any_element();
         }
-        self.keep_selection_visible(cx);
+        let list = self.visible(cx);
+        if !list.iter().any(|a| Some(&a.id) == self.selected.as_ref()) {
+            self.keep_selection_visible(cx);
+        }
+        self.advance_wheel(list.len(), window);
+        self.advance_parallax(window);
+        let viewport = window.viewport_size();
+        let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height) - 60.);
+        let side_w = (vw * 0.44).max(400.);
+        // Ancho útil del detalle (sin sus márgenes), para la grilla de tarjetas de rango.
+        self.detail_w = vw - side_w - 22. - 36. - 6.;
+
         let account = self.selected_account(cx);
         let tier = account.as_ref().map(ui::account_tier_color).unwrap_or_else(|| ui::tier_color(None));
         let splash = account.as_ref().and_then(|a| {
             let store = &self.vault.read(cx).store;
             ui::splash_for(a, store.session().map(|s| &s.history), |_| String::new()).0
         });
+        let (px_, py_) = (self.parallax.x, self.parallax.y);
+        let glow = |x: f32, y: f32, color: Hsla, blur: f32| {
+            div().absolute().left(relative(x)).top(relative(y)).size(px(2.)).shadow(vec![BoxShadow { inset: false,
+                color,
+                offset: point(px(0.), px(0.)),
+                blur_radius: px(blur),
+                spread_radius: px(blur * 0.55),
+            }])
+        };
 
         div()
             .id("stage")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
+            .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
+                this.parallax.tx = -(f32::from(ev.position.x) / vw - 0.5) * 22.;
+                this.parallax.ty = -((f32::from(ev.position.y) - 60.) / vh - 0.5) * 14.;
+                cx.notify();
+            }))
             .relative()
             .size_full()
             .overflow_hidden()
             .bg(p.bg)
-            // Splash de la cuenta elegida, oscurecido, y el halo del color de su liga.
-            .child(div().absolute().inset_0().bg(radial_glow(tier)))
-            .when_some(splash, |d, url| d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover).opacity(0.62)))
-            .child(div().absolute().inset_0().bg(linear_gradient(
-                90.,
-                linear_color_stop(alpha(p.bg, 0.97), 0.),
-                linear_color_stop(alpha(p.bg, 0.3), 1.),
+            // Fondo: halo del color de la liga y el splash del perfil, oscurecido para que el texto se lea.
+            .child(
+                div()
+                    .absolute()
+                    .left(px(-30. + px_))
+                    .top(px(-30. + py_))
+                    .w(px(vw + 60.))
+                    .h(px(vh + 60.))
+                    .child(glow(0.75, 0.3, alpha(tier, 0.22), 420.))
+                    .when_some(splash, |d, url| {
+                        d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover)).child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.26)))
+                    }),
+            )
+            // Sombra suave detrás del nombre y los rangos, y velos para que la rueda y el texto se lean.
+            .child(glow(0.6, 0.38, alpha(p.bg, 0.4), 260.))
+            .child(band(0., 0.36, alpha(p.bg, 0.84), alpha(p.bg, 0.7)))
+            .child(band(0.36, 0.62, alpha(p.bg, 0.7), alpha(p.bg, 0.38)))
+            .child(band(0.62, 1.0, alpha(p.bg, 0.38), alpha(p.bg, 0.2)))
+            .child(div().absolute().left_0().right_0().bottom_0().h(relative(0.4)).bg(linear_gradient(
+                180.,
+                linear_color_stop(alpha(p.bg, 0.), 0.),
+                linear_color_stop(alpha(p.bg, 0.96), 1.),
             )))
-            .child(div().absolute().inset_0().bg(linear_gradient(
-                0.,
-                linear_color_stop(alpha(p.bg, 0.96), 0.),
-                linear_color_stop(alpha(p.bg, 0.), 0.4),
-            )))
-            .child(h_flex().relative().size_full().items_start().child(self.side(cx)).when_some(account, |d, a| d.child(self.detail(&a, cx))))
+            .child(h_flex().relative().size_full().items_start().child(self.side(side_w, &list, cx)).when_some(account, |d, a| d.child(self.detail(&a, cx))))
             .into_any_element()
     }
-}
-
-/// Fondo tenue del color de la liga (en Electron, un radial-gradient detrás del splash).
-fn radial_glow(tier: Hsla) -> Background {
-    linear_gradient(200., linear_color_stop(alpha(tier, 0.18), 0.), linear_color_stop(alpha(tier, 0.), 0.7))
 }

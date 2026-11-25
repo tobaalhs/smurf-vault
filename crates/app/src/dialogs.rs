@@ -21,7 +21,7 @@ pub const SERVERS: [&str; 11] = ["LAS", "LAN", "NA", "BR", "EUW", "EUNE", "OCE",
 /// Los diálogos se abren bajo la barra de arriba, que sigue visible y usable. Sin el velo de la
 /// librería: la vista raíz oscurece solo lo que queda bajo la barra (ver AppView).
 pub fn below_bar(d: Dialog) -> Dialog {
-    d.overlay(false).margin_top(px(76.))
+    d.overlay(false).centered().p(px(22.))
 }
 const NO_SERVER: &str = "—";
 
@@ -56,7 +56,7 @@ pub fn confirm(
         let p = palette(cx);
         let on_yes = on_yes.clone();
         below_bar(dialog)
-            .title(title)
+            .title(dialog_title(title))
             .w(px(420.))
             .child(div().text_size(px(13.5)).text_color(p.text_2).child(text.clone()))
             .footer(
@@ -185,7 +185,7 @@ pub fn open_account(vault: Entity<Vault>, acc: Option<Account>, window: &mut Win
         let (form_save, vault_del, vault_forget) = (form.clone(), vault.clone(), vault.clone());
         let (id_del, id_forget, name) = (id.clone(), id.clone(), name.clone().unwrap_or_default());
         let danger = palette(cx).danger;
-        below_bar(dialog).title(title).w(px(580.)).child(form.clone()).footer(
+        below_bar(dialog).title(dialog_title(title)).w(px(580.)).child(form.clone()).footer(
             h_flex()
                 .w_full()
                 .gap(px(8.))
@@ -250,7 +250,7 @@ pub fn open_add(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
                 .child(div().text_size(px(13.)).text_color(p.text_2).child(text))
         };
         below_bar(dialog)
-            .title("Agregar cuenta")
+            .title(dialog_title("Agregar cuenta"))
             .w(px(540.))
             .child(
                 v_flex()
@@ -365,7 +365,7 @@ pub fn open_import(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
     let form = cx.new(|cx| ImportForm::new(vault, window, cx));
     window.open_dialog(cx, move |dialog, _, _| {
         let form_ok = form.clone();
-        below_bar(dialog).title("Importar desde txt").w(px(540.)).child(form.clone()).footer(
+        below_bar(dialog).title(dialog_title("Importar desde txt")).w(px(540.)).child(form.clone()).footer(
             h_flex()
                 .w_full()
                 .gap(px(8.))
@@ -378,4 +378,9 @@ pub fn open_import(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
                 })),
         )
     });
+}
+
+/// Título de diálogo como en Electron (17 px, seminegrita).
+fn dialog_title(text: &'static str) -> Div {
+    div().pb(px(12.)).text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(text)
 }

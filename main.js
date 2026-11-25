@@ -19,6 +19,9 @@ const { GameData } = require('./src/gamedata');
 const { Skins } = require('./src/skins');
 const { autoUpdater } = require('electron-updater');
 
+// Solo en desarrollo: SV_DATA_DIR usa otra carpeta de datos (p. ej. la bóveda de demo), para comparar
+// la versión Electron con la de Rust sobre los mismos datos.
+if (!app.isPackaged && process.env.SV_DATA_DIR) app.setPath('userData', process.env.SV_DATA_DIR);
 const userData = app.getPath('userData');
 const LOCAL_VAULT = path.join(userData, 'vault.dat');
 const LOCAL_BACKUP = path.join(userData, 'vault.prev.dat');
@@ -1003,6 +1006,10 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // Solo en desarrollo: SV_DEV_JS se ejecuta en la interfaz al cargar (para sacar capturas de referencia).
+  if (!app.isPackaged && process.env.SV_DEV_JS) {
+    win.webContents.once('did-finish-load', () => win.webContents.executeJavaScript(process.env.SV_DEV_JS).catch(() => {}));
+  }
   // Al iniciar Windows parte en la bandeja; sin bandeja no tendría cómo abrirse, así que se muestra.
   const hidden = process.argv.includes(STARTUP_ARG) && config.closeToTray;
   win.once('ready-to-show', () => {

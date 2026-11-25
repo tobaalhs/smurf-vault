@@ -8,10 +8,12 @@ mod dialogs;
 mod http;
 mod lock;
 mod main_screen;
+mod sounds;
 mod state;
 mod tabs;
 mod theme;
 mod ui;
+mod wheel;
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;

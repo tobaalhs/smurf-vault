@@ -178,7 +178,7 @@ impl Render for AppView {
                     .child(self.top_bar(cx))
                     .child(div().flex_1().min_h_0().child(main))
                     .when(dialog_open, |d| {
-                        d.child(div().id("dialog-backdrop").absolute().top(px(60.)).left_0().right_0().bottom_0().bg(alpha(p.bg, 0.72)).occlude())
+                        d.child(div().id("dialog-backdrop").absolute().top(px(60.)).left_0().right_0().bottom_0().bg(alpha(p.bg, 0.86)).occlude())
                     })
                     .into_any_element()
             }

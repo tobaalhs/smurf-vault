@@ -1,8 +1,9 @@
 //! Colores de la app. Son los mismos 10 personalizables de la versión Electron (renderer/theme.js);
 //! los tonos intermedios se calculan a partir de ellos igual que allá, y si un color no se cambió se
 //! usan los valores exactos de styles.css.
-use gpui_kit::component::theme::{Theme, ThemeMode, ThemeTokens};
-use gpui_kit::{px, rgba, App, Hsla, Rgba};
+use crate::ui::lighten;
+use gpui_kit::component::theme::{Theme, ThemeMode, ThemeToken, ThemeTokens};
+use gpui_kit::{linear_color_stop, linear_gradient, px, rgba, App, Hsla, Rgba};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug)]
@@ -115,7 +116,8 @@ impl Palette {
         Theme::change(ThemeMode::Dark, None, cx);
         let t = Theme::global_mut(cx);
         t.font_family = "Segoe UI".into();
-        t.font_size = px(13.);
+        // Base de los rem de la librería: con 16 px los campos y botones miden 32 px (como los 34 de Electron).
+        t.font_size = px(16.);
         t.radius = px(8.);
         t.radius_lg = px(12.);
 
@@ -177,6 +179,11 @@ impl Palette {
         // Los componentes leen tokens calculados a partir de los colores: se recalculan y se pasan
         // a la capa base (scrollbars, bordes de redimensionar).
         t.tokens = ThemeTokens::from(&t.colors);
+        // Botón principal con el degradado dorado de Electron (más claro al pasar el mouse).
+        let grad = |a: Hsla, b: Hsla| linear_gradient(180., linear_color_stop(a, 0.), linear_color_stop(b, 1.));
+        t.tokens.button_primary = ThemeToken::new(self.gold, grad(self.gold_hi, self.gold_lo));
+        t.tokens.button_primary_hover = ThemeToken::new(self.gold_hi, grad(lighten(self.gold_hi, 0.07), lighten(self.gold, 0.07)));
+        t.tokens.button_primary_active = ThemeToken::new(self.gold, grad(self.gold, self.gold_lo));
         Theme::sync_base(cx);
         cx.set_global(self);
     }

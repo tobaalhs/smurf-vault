@@ -1,6 +1,6 @@
 //! Piezas y formatos que comparten las pantallas: colores por liga, "hace X", baneos, splash de
 //! fondo, avatar con su marco y copiar al portapapeles.
-use crate::theme::{palette, Palette};
+use crate::theme::palette;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use std::time::Duration;
@@ -49,6 +49,11 @@ pub fn champion_icon_url(id: i64) -> SharedString {
 
 pub fn alpha(c: Hsla, a: f32) -> Hsla {
     Hsla { a, ..c }
+}
+
+/// Un poco más claro (como filter: brightness(1 + amount)).
+pub fn lighten(c: Hsla, amount: f32) -> Hsla {
+    Hsla { l: (c.l * (1. + amount)).min(1.), ..c }
 }
 
 fn parse_iso(iso: &str) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -140,45 +145,52 @@ pub fn splash_for(a: &Account, history: Option<&History>, champ_name: impl Fn(i6
     (None, String::new())
 }
 
-/// Ícono de perfil redondo con el borde del color de su liga y el nivel abajo.
-pub fn avatar(a: &Account, size: f32, cx: &App) -> Div {
+/// El círculo del ícono de perfil (o la inicial), con el borde del color de su liga. Con marco
+/// (`framed`) el borde no se ve: lo cubre el marco.
+pub fn avatar_circle(a: &Account, size: f32, framed: bool, cx: &App) -> Div {
     let p = palette(cx);
     let initial: String = a.game_name.chars().next().or_else(|| a.username.chars().next()).unwrap_or('?').to_uppercase().collect();
-    let border = account_tier_color(a);
+    let border = if framed { transparent_black() } else { account_tier_color(a) };
     let circle = div()
-        .size(px(size))
+        .absolute()
+        .inset_0()
         .rounded_full()
         .border(px(if size > 60. { 3. } else { 2. }))
         .border_color(border)
         .bg(p.surface_3)
-        .overflow_hidden()
         .flex()
         .items_center()
         .justify_center()
         .text_color(p.text_2)
         .font_weight(FontWeight::BOLD)
-        .text_size(px(size * 0.33));
-    let circle = match a.icon_id {
-        Some(id) => circle.child(img(profile_icon_url(id)).size_full().object_fit(ObjectFit::Cover)),
+        .text_size(px(size * 0.33))
+        .when(size > 60., |d| d.shadow(vec![BoxShadow { inset: false, color: hsla(0., 0., 0., 0.5), offset: point(px(0.), px(10.)), blur_radius: px(30.), spread_radius: px(0.) }]));
+    match a.icon_id {
+        // La imagen se recorta redonda ella misma (sin esto se ven sus esquinas cuadradas).
+        Some(id) => circle.child(img(profile_icon_url(id)).size_full().rounded_full().object_fit(ObjectFit::Cover)),
         None => circle.child(initial),
-    };
-    div().relative().size(px(size)).flex_none().child(circle).when_some(a.level, |d, lvl| {
-        d.child(
-            div().absolute().left_0().right_0().bottom(px(if size > 60. { -9. } else { -5. })).flex().justify_center().child(
-                div()
-                    .px(px(if size > 60. { 9. } else { 6. }))
-                    .rounded_full()
-                    .bg(p.bg)
-                    .border_1()
-                    .border_color(p.border_strong)
-                    .text_size(px(if size > 60. { 12. } else { 10. }))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(p.text_2)
-                    .child(lvl.to_string()),
-            ),
-        )
-    })
+    }
 }
+
+/// Nivel de la cuenta, centrado abajo del ícono. Va encima del marco.
+pub fn level_badge(level: i64, size: f32, cx: &App) -> Div {
+    let p = palette(cx);
+    let big = size > 60.;
+    div().absolute().left_0().right_0().bottom(px(if big { -9. } else { -5. })).flex().justify_center().child(
+        div()
+            .px(px(if big { 9. } else { 6. }))
+            .rounded_full()
+            .bg(p.bg)
+            .border_1()
+            .border_color(p.border_strong)
+            .text_size(px(if big { 12. } else { 10. }))
+            .line_height(px(if big { 17. } else { 16. }))
+            .font_weight(FontWeight::BOLD)
+            .text_color(p.text_2)
+            .child(level.to_string()),
+    )
+}
+
 
 /// Marco del ícono del detalle: el de nivel si la cuenta eligió ese en el cliente; si no, las alas
 /// de su mejor rango. Devuelve (imagen, posición y tamaño respecto del avatar de 92 px, espacio extra arriba).
@@ -241,6 +253,3 @@ pub fn copy_secret(value: String, cx: &mut App) {
     .detach();
 }
 
-pub fn section_label(text: &'static str, p: &Palette) -> Div {
-    div().text_size(px(11.)).font_weight(FontWeight::SEMIBOLD).text_color(p.muted).child(text.to_uppercase())
-}

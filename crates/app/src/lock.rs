@@ -138,7 +138,7 @@ impl Render for LockScreen {
         let lock_icon = || Icon::empty().path(assets::icon("lock")).text_color(p.muted);
 
         let card = v_flex()
-            .w(px(360.))
+            .w(px(380.))
             .px(px(30.))
             .pt(px(34.))
             .pb(px(24.))
@@ -152,12 +152,14 @@ impl Render for LockScreen {
             .child(img(assets::logo()).size(px(84.)).rounded(px(20.)))
             .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"))
             .child(div().text_center().text_size(px(13.)).text_color(p.muted).child(hint))
-            .child(Input::new(&self.pw1).prefix(lock_icon()))
-            .when(create, |d| d.child(Input::new(&self.pw2).prefix(lock_icon())))
+            .child(Input::new(&self.pw1).prefix(lock_icon()).h(px(40.)))
+            .when(create, |d| d.child(Input::new(&self.pw2).prefix(lock_icon()).h(px(40.))))
             .child(
                 Button::new("lock-submit")
                     .primary()
                     .w_full()
+                    .h(px(40.))
+                    .text_size(px(14.))
                     .label(if create { "Crear bóveda" } else { "Desbloquear" })
                     .loading(self.busy)
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
@@ -165,9 +167,13 @@ impl Render for LockScreen {
             .when_some(self.error.clone(), |d, e| d.child(div().text_size(px(13.)).text_color(p.danger).child(e)))
             .child(
                 v_flex()
-                    .mt(px(6.))
+                    .w_full()
+                    .mt(px(14.))
+                    .pt(px(16.))
                     .gap(px(6.))
                     .items_center()
+                    .border_t_1()
+                    .border_color(p.border)
                     .child(div().text_size(px(12.)).text_color(p.muted).child("¿Ya usabas Smurf Vault en otro PC?"))
                     .child(
                         Button::new("lock-google")

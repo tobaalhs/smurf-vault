@@ -1,10 +1,11 @@
 //! Pestañas del detalle: Historial (partidas de LoL y TFT con su resumen), Progreso (gráfico
-//! escalonado de LP con crosshair) y Campeones (maestrías). Igual que carousel.js.
-use crate::detail::result_color;
+//! escalonado de LP con crosshair) y Campeones (maestrías). Igual que carousel.js, con las medidas
+//! de styles.css.
+use crate::detail::{caps, result_color};
 use crate::main_screen::MainScreen;
 use crate::theme::{palette, Palette};
 use crate::ui::{self, alpha, hex};
-use gpui_kit::component::{h_flex, v_flex, Icon, IconName, Sizable};
+use gpui_kit::component::{h_flex, v_flex, Icon, IconName};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use std::collections::BTreeMap;
@@ -58,6 +59,30 @@ fn result_text(m: &Match) -> String {
     if m.win { "Victoria" } else { "Derrota" }.into()
 }
 
+/// 512340 -> "512.340" (como toLocaleString en español).
+fn thousands(n: i64) -> String {
+    let s = n.abs().to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push('.');
+        }
+        out.push(c);
+    }
+    if n < 0 {
+        format!("-{out}")
+    } else {
+        out
+    }
+}
+
+/// Fecha local como 15/11/2026 (toLocaleDateString en español).
+fn local_date(iso: &str, with_time: bool) -> String {
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .map(|d| d.with_timezone(&chrono::Local).format(if with_time { "%d/%m/%Y, %H:%M" } else { "%d/%m/%Y" }).to_string())
+        .unwrap_or_default()
+}
+
 /// LP que dio una partida clasificatoria: el cambio del registro de LP anotado justo después de
 /// terminarla (la app revisa el rango a los pocos segundos de cada partida). None si no se sabe.
 fn match_lp(m: &Match, lp: &BTreeMap<String, Vec<LpPoint>>) -> Option<i64> {
@@ -85,116 +110,135 @@ fn match_lp(m: &Match, lp: &BTreeMap<String, Vec<LpPoint>>) -> Option<i64> {
 
 fn lp_chip(diff: Option<i64>, p: &Palette) -> Option<Div> {
     let d = diff?;
-    Some(div().text_size(px(11.5)).font_weight(FontWeight::BOLD).text_color(if d > 0 { p.ok } else { p.loss }).child(format!(
+    Some(div().ml(px(6.)).text_size(px(11.5)).font_weight(FontWeight::BOLD).text_color(if d > 0 { p.ok } else { p.loss }).child(format!(
         "{}{} LP",
         if d > 0 { "+" } else { "−" },
         d.abs()
     )))
 }
 
-fn stat(value: impl Into<SharedString>, label: impl Into<SharedString>, color: Hsla, p: &Palette) -> Div {
+/// Un número grande con su leyenda abajo (sin recuadro, como .h-stat).
+fn stat(value: impl Into<SharedString>, label: impl Into<SharedString>, color: Hsla, size: f32, p: &Palette) -> Div {
     v_flex()
-        .gap(px(2.))
-        .px(px(14.))
-        .py(px(10.))
-        .rounded(px(10.))
-        .bg(alpha(p.surface, 0.82))
-        .border_1()
-        .border_color(p.border_strong)
-        .child(div().text_size(px(16.)).font_weight(FontWeight::BOLD).text_color(color).child(value.into()))
+        .child(div().text_size(px(size)).font_weight(FontWeight::BOLD).text_color(color).child(value.into()))
         .child(div().text_size(px(11.5)).text_color(p.muted).child(label.into()))
 }
 
-fn empty_tab(icon: Icon, text: &'static str, p: &Palette) -> Div {
-    v_flex()
-        .pt(px(40.))
+/// Selector segmentado (LoL / TFT, Solo/Dúo / Flex / TFT).
+fn segmented(p: &Palette) -> Div {
+    h_flex().gap(px(2.)).p(px(2.)).mb(px(14.)).rounded(px(9.)).bg(alpha(p.surface, 0.7)).border_1().border_color(p.border_strong)
+}
+
+fn segment(id: SharedString, label: &str, count: Option<usize>, on: bool, p: &Palette) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
         .items_center()
-        .gap(px(10.))
-        .child(icon.large().text_color(p.muted))
-        .child(div().text_center().text_size(px(13.)).text_color(p.muted).child(text))
+        .gap(px(6.))
+        .h(px(28.))
+        .px(px(12.))
+        .rounded(px(7.))
+        .cursor_pointer()
+        .text_size(px(12.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(if on { p.text } else { p.muted })
+        .when(on, |d| d.bg(p.surface_3))
+        .hover(|s| s.text_color(p.text))
+        .child(label.to_string())
+        .when_some(count, |d, n| d.child(div().px(px(6.)).rounded_full().bg(p.surface_3).text_size(px(11.)).text_color(p.text_2).child(n.to_string())))
+}
+
+fn empty_tab(icon: Icon, lines: [&'static str; 2], p: &Palette) -> Div {
+    h_flex()
+        .gap(px(14.))
+        .py(px(18.))
+        .px(px(4.))
+        .text_color(p.muted)
+        .child(icon.size(px(28.)).text_color(p.muted))
+        .child(v_flex().gap(px(3.)).text_size(px(13.)).child(lines[0]).child(lines[1]))
 }
 
 fn match_row(m: &Match, lp: &BTreeMap<String, Vec<LpPoint>>, game: &GameData, p: &Palette) -> Div {
     let color = result_color(m, p);
     let mins = (m.dur as f64 / 60.).round() as i64;
     let res = v_flex()
-        .w(px(170.))
-        .gap(px(2.))
-        .child(
-            h_flex()
-                .gap(px(6.))
-                .child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(color).child(result_text(m)))
-                .children(lp_chip(match_lp(m, lp), p)),
-        )
+        .w(px(120.))
+        .flex_none()
+        .child(h_flex().child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(color).child(result_text(m))).children(lp_chip(match_lp(m, lp), p)))
         .child(div().text_size(px(11.5)).text_color(p.muted).child(format!("{} · {mins} min", queue_name(m))));
-    let when = div().w(px(90.)).text_right().text_size(px(12.)).text_color(p.muted).child(ui::ago(Some(&m.at)));
+    let when = div().flex_none().text_right().text_size(px(12.)).text_color(p.muted).child(ui::ago(Some(&m.at)));
     let row = h_flex()
-        .gap(px(14.))
-        .px(px(14.))
-        .py(px(9.))
+        .gap(px(12.))
+        .max_w(px(860.))
+        .pl(px(7.))
+        .pr(px(12.))
+        .py(px(7.))
         .rounded(px(10.))
-        .bg(alpha(color, 0.07))
-        .border_l_4()
-        .border_color(color);
+        .bg(alpha(p.surface, 0.76))
+        .border_1()
+        .border_l(px(3.))
+        .border_color(p.border)
+        .child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).rounded_l(px(10.)).bg(color));
+    let tile = |d: Div| d.size(px(42.)).flex_none().rounded(px(8.)).overflow_hidden();
     if m.mode == "tft" {
         let legend = m.companion.and_then(|c| game.companion_url(c));
-        let place = div()
-            .relative()
-            .size(px(40.))
-            .flex_none()
-            .rounded(px(8.))
-            .overflow_hidden()
-            .bg(alpha(color, 0.18))
-            .when_some(legend, |d, url| d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover).opacity(0.5)))
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(16.))
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(color)
-                    .child(m.placement.map(|x| x.to_string()).unwrap_or_else(|| "?".into())),
-            );
+        let number = div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(19.))
+            .font_weight(FontWeight::EXTRA_BOLD)
+            .text_color(if legend.is_some() { hex(0xffffff) } else { color })
+            .child(m.placement.map(|x| x.to_string()).unwrap_or_else(|| "?".into()));
+        let place = tile(div().relative().bg(p.surface_3))
+            .when_some(legend, |d, url| d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover).opacity(0.5)).child(div().absolute().inset_0().bg(alpha(color, 0.45))))
+            .child(number);
         return row
+            .relative()
             .child(place)
             .child(res)
             .child(
-                v_flex().flex_1().when_some(m.lvl, |d, l| {
-                    d.child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(p.text).child(format!("Nivel {l}")))
+                v_flex().w(px(110.)).flex_none().when_some(m.lvl, |d, l| {
+                    d.child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(p.text).child(format!("Nivel {l}")))
                         .child(div().text_size(px(11.5)).text_color(p.muted).child("al terminar"))
                 }),
             )
+            .child(div().flex_1())
             .child(when);
     }
     let (k, d, a) = (m.k.unwrap_or(0), m.d.unwrap_or(0), m.a.unwrap_or(0));
     let ratio = if d > 0 { format!("{:.1}", (k + a) as f64 / d as f64) } else { "Perfecto".into() };
-    let items = h_flex().gap(px(3.)).children(m.items.clone().unwrap_or_default().into_iter().map(|id| {
-        let slot = div().size(px(24.)).rounded(px(4.)).bg(p.surface_3);
+    let items = m.items.clone().unwrap_or_default();
+    let n = items.len();
+    let items = h_flex().gap(px(3.)).flex_1().min_w_0().overflow_hidden().children(items.into_iter().enumerate().map(|(i, id)| {
+        // El último es el trinket: redondo y un poco separado.
+        let trinket = i + 1 == n;
+        let slot = div().size(px(26.)).flex_none().overflow_hidden().bg(hsla(0., 0., 1., 0.05)).when(trinket, |d| d.ml(px(4.))).map(|d| if trinket { d.rounded_full() } else { d.rounded(px(5.)) });
         match game.item_url(id) {
-            Some(url) => slot.overflow_hidden().child(img(url).size_full()),
+            Some(url) => slot.child(img(url).size_full()),
             None => slot,
         }
     }));
-    row.child(match m.champ {
-        Some(c) => img(ui::champion_icon_url(c)).size(px(40.)).rounded(px(8.)).flex_none().into_any_element(),
-        None => div().size(px(40.)).into_any_element(),
-    })
-    .child(res)
-    .child(
-        v_flex()
-            .w(px(120.))
-            .gap(px(2.))
-            .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(p.text).child(format!("{k} / {d} / {a}")))
-            .child(div().text_size(px(11.5)).text_color(p.muted).child(format!("{ratio} KDA · {} CS", m.cs.unwrap_or(0)))),
-    )
-    .child(div().flex_1().child(items))
-    .child(when)
+    row.relative()
+        .child(match m.champ {
+            Some(c) => tile(div()).child(img(ui::champion_icon_url(c)).size_full()).into_any_element(),
+            None => tile(div().bg(p.surface_3)).into_any_element(),
+        })
+        .child(res)
+        .child(
+            v_flex()
+                .w(px(110.))
+                .flex_none()
+                .child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(p.text).child(format!("{k} / {d} / {a}")))
+                .child(div().text_size(px(11.5)).text_color(p.muted).child(format!("{ratio} KDA · {} CS", m.cs.unwrap_or(0)))),
+        )
+        .child(items)
+        .child(when)
 }
 
-fn lol_summary(matches: &[&Match], game: &GameData, p: &Palette) -> Option<Div> {
+fn lol_summary(matches: &[&Match], p: &Palette) -> Option<Div> {
     let valid: Vec<&&Match> = matches.iter().filter(|m| !m.is_remake()).collect();
     let first = valid.first()?;
     let wins = valid.iter().filter(|m| m.win).count();
@@ -214,37 +258,36 @@ fn lol_summary(matches: &[&Match], game: &GameData, p: &Palette) -> Option<Div> 
     champs.sort_by(|a, b| b.1.cmp(&a.1));
     Some(
         h_flex()
-            .gap(px(10.))
+            .gap(px(22.))
+            .mb(px(12.))
             .flex_wrap()
-            .child(stat(format!("{wins}V {}D", valid.len() - wins), format!("Últimas {} · {wr}%", valid.len()), p.text, p))
+            .child(stat(format!("{wins}V {}D", valid.len() - wins), format!("Últimas {} · {wr}%", valid.len()), p.text, 16., p))
             .when(streak >= 2, |d| {
                 d.child(stat(
                     format!("{streak} {}", if first.win { "victorias" } else { "derrotas" }),
                     "seguidas",
                     if first.win { p.win } else { p.loss },
+                    16.,
                     p,
                 ))
             })
-            .children(champs.into_iter().take(3).map(|(id, games, w)| {
+            .child(div().flex_1())
+            .child(h_flex().gap(px(14.)).children(champs.into_iter().take(3).map(|(id, games, w)| {
                 h_flex()
                     .gap(px(8.))
-                    .px(px(10.))
-                    .py(px(8.))
-                    .rounded(px(10.))
-                    .bg(alpha(p.surface, 0.82))
-                    .border_1()
-                    .border_color(p.border_strong)
-                    .child(img(ui::champion_icon_url(id)).size(px(32.)).rounded(px(6.)))
+                    .text_size(px(12.))
+                    .text_color(p.text_2)
+                    .child(img(ui::champion_icon_url(id)).size(px(30.)).rounded_full().border_1().border_color(p.border_strong))
                     .child(
                         v_flex()
-                            .child(div().text_size(px(12.5)).text_color(p.text).child(format!(
-                                "{} · {games} {}",
-                                Some(game.champion(id)).filter(|n| !n.is_empty()).unwrap_or_else(|| "Campeón".into()),
-                                if games == 1 { "partida" } else { "partidas" }
-                            )))
+                            .child(h_flex().gap(px(4.)).child(div().font_weight(FontWeight::BOLD).text_color(p.text).child(games.to_string())).child(if games == 1 {
+                                "partida"
+                            } else {
+                                "partidas"
+                            }))
                             .child(div().text_size(px(11.)).text_color(p.muted).child(format!("{}% victorias", (w as f64 / games as f64 * 100.).round()))),
                     )
-            })),
+            }))),
     )
 }
 
@@ -257,25 +300,24 @@ fn tft_summary(matches: &[&Match], p: &Palette) -> Option<Div> {
     let avg = placed.iter().sum::<i64>() as f64 / n;
     let top4 = placed.iter().filter(|x| **x <= 4).count();
     let firsts = placed.iter().filter(|x| **x == 1).count();
-    let dist = h_flex().gap(px(4.)).items_end().h(px(56.)).children((1..=8).map(|place| {
+    let dist = h_flex().gap(px(4.)).items_end().h(px(52.)).children((1..=8).map(|place| {
         let count = placed.iter().filter(|x| **x == place).count();
-        let color = result_color(&Match { placement: Some(place), mode: "tft".into(), ..empty_match() }, p);
+        let color = if place <= 4 { result_color(&Match { placement: Some(place), mode: "tft".into(), ..empty_match() }, p) } else { p.muted };
         v_flex()
             .items_center()
             .gap(px(2.))
-            .child(div().w(px(14.)).h(px((count as f32 / n as f32) * 40. + 2.)).rounded_t(px(3.)).bg(color))
+            .child(div().w(px(14.)).h(px((count as f32 / n as f32) * 36. + 2.)).rounded_t(px(3.)).bg(color))
             .child(div().text_size(px(10.)).text_color(p.muted).child(place.to_string()))
     }));
     Some(
         h_flex()
-            .gap(px(10.))
+            .gap(px(22.))
+            .mb(px(12.))
             .flex_wrap()
-            .child(stat(format!("{avg:.1}"), format!("Puesto promedio · últimas {}", placed.len()), p.text, p))
-            .child(stat(format!("{}%", (top4 as f64 / n * 100.).round()), format!("Top 4 ({top4})"), p.text, p))
-            .when(firsts > 0, |d| {
-                d.child(stat(firsts.to_string(), if firsts == 1 { "Primer lugar" } else { "Primeros lugares" }, hex(0xf0c75e), p))
-            })
-            .child(div().px(px(14.)).py(px(6.)).rounded(px(10.)).bg(alpha(p.surface, 0.82)).border_1().border_color(p.border_strong).child(dist)),
+            .child(stat(format!("{avg:.1}"), format!("Puesto promedio · últimas {}", placed.len()), p.text, 16., p))
+            .child(stat(format!("{}%", (top4 as f64 / n * 100.).round()), format!("Top 4 ({top4})"), p.text, 16., p))
+            .when(firsts > 0, |d| d.child(stat(firsts.to_string(), if firsts == 1 { "Primer lugar" } else { "Primeros lugares" }, hex(0xf0c75e), 16., p)))
+            .child(dist),
     )
 }
 
@@ -343,8 +385,12 @@ impl ChartGeom {
     }
 }
 
-fn paint_text(text: String, origin: Point<Pixels>, size: f32, color: Hsla, right: Option<f32>, window: &mut Window, cx: &mut App) {
-    let run = TextRun { len: text.len(), font: font("Segoe UI"), color, background_color: None, underline: None, strikethrough: None };
+fn paint_text(text: String, origin: Point<Pixels>, size: f32, color: Hsla, bold: bool, right: Option<f32>, window: &mut Window, cx: &mut App) {
+    let mut f = font("Segoe UI");
+    if bold {
+        f.weight = FontWeight::BOLD;
+    }
+    let run = TextRun { len: text.len(), font: f, color, background_color: None, underline: None, strikethrough: None };
     let line = window.text_system().shape_line(text.into(), px(size), &[run], None);
     let (origin, align, width) = match right {
         Some(w) => (point(origin.x - px(w), origin.y), TextAlign::Right, Some(px(w))),
@@ -359,12 +405,11 @@ fn paint_chart(b: Bounds<Pixels>, list: &[LpPoint], color: Hsla, p: &Palette, ho
     let at = |x: f32, y: f32| point(b.origin.x + px(x), b.origin.y + px(y));
     for v in g.ticks() {
         let y = g.y(v as f64);
-        window.paint_quad(fill(Bounds::new(at(PAD_L, y), size(px(g.w - PAD_L - PAD_R), px(1.))), p.border));
-        paint_text(tick_label(v), at(PAD_L - 10., y - 8.), 11., p.muted, Some(80.), window, cx);
+        window.paint_quad(fill(Bounds::new(at(PAD_L, y), size(px(g.w - PAD_L - PAD_R), px(1.))), alpha(p.text, 0.07)));
+        paint_text(tick_label(v), at(PAD_L - 10., y - 8.), 11., p.muted, false, Some(80.), window, cx);
     }
-    let first_date = chrono::DateTime::from_timestamp_millis(g.t0).map(|d| d.with_timezone(&chrono::Local).format("%d-%m-%Y").to_string());
-    paint_text(first_date.unwrap_or_default(), at(PAD_L, CHART_H - 18.), 11., p.muted, None, window, cx);
-    paint_text("hoy".into(), at(g.w - PAD_R, CHART_H - 18.), 11., p.muted, Some(40.), window, cx);
+    paint_text(local_date(&list[0].at, false), at(PAD_L, CHART_H - 18.), 11., p.muted, false, None, window, cx);
+    paint_text("hoy".into(), at(g.w - PAD_R, CHART_H - 18.), 11., p.muted, false, Some(40.), window, cx);
 
     // Escalones: horizontal hasta el siguiente punto, luego vertical; al final se estira hasta hoy.
     let pts: Vec<(f32, f32)> = list.iter().map(|pt| (g.x(ms(&pt.at)), g.y(lp_value(pt) as f64))).collect();
@@ -386,16 +431,16 @@ fn paint_chart(b: Bounds<Pixels>, list: &[LpPoint], color: Hsla, p: &Palette, ho
     area.line_to(at(pts[0].0, CHART_H - PAD_B));
     area.close();
     if let Ok(path) = area.build() {
-        window.paint_path(path, linear_gradient(180., linear_color_stop(alpha(color, 0.28), 0.), linear_color_stop(alpha(color, 0.), 1.)));
+        window.paint_path(path, linear_gradient(180., linear_color_stop(alpha(color, 0.22), 0.), linear_color_stop(alpha(color, 0.02), 1.)));
     }
     if let Ok(path) = line.build() {
         window.paint_path(path, color);
     }
     let dot = |x: f32, y: f32, window: &mut Window| {
-        window.paint_quad(fill(Bounds::new(at(x - 5., y - 5.), size(px(10.), px(10.))), color).corner_radii(px(5.)));
+        window.paint_quad(fill(Bounds::new(at(x - 5., y - 5.), size(px(10.), px(10.))), color).corner_radii(px(5.)).border_widths(px(2.)).border_color(p.bg));
     };
     dot(end_x, last.1, window);
-    paint_text(format!("{} LP", list.last().unwrap().lp), at(end_x + 10., last.1 - 8.), 12., p.text, None, window, cx);
+    paint_text(format!("{} LP", list.last().unwrap().lp), at(end_x + 10., last.1 - 8.), 11.5, p.text, true, None, window, cx);
     if let Some(i) = hover.filter(|i| *i < pts.len()) {
         let (x, y) = pts[i];
         window.paint_quad(fill(Bounds::new(at(x, PAD_T), size(px(1.), px(CHART_H - PAD_T - PAD_B))), alpha(p.text, 0.35)));
@@ -420,7 +465,7 @@ impl MainScreen {
         if modes.is_empty() {
             return empty_tab(
                 Icon::empty().path(crate::assets::icon("clock")),
-                "Todavía no hay partidas guardadas de esta cuenta.\nSe cargan al detectarla en el cliente y se actualizan solas al terminar cada partida.",
+                ["Todavía no hay partidas guardadas de esta cuenta.", "Se cargan al detectarla en el cliente y se actualizan solas al terminar cada partida."],
                 &p,
             )
             .into_any_element();
@@ -430,32 +475,18 @@ impl MainScreen {
         let list: Vec<&Match> = matches.iter().filter(|m| m.mode == mode).collect();
         let count = |m: &str| matches.iter().filter(|x| x.mode == m).count();
         let switcher = (modes.len() > 1).then(|| {
-            h_flex().gap(px(6.)).children([("lol", "League of Legends"), ("tft", "TFT")].map(|(key, label)| {
-                let on = key == mode;
-                div()
-                    .id(SharedString::from(format!("mode-{key}")))
-                    .px(px(12.))
-                    .py(px(6.))
-                    .rounded_full()
-                    .cursor_pointer()
-                    .text_size(px(12.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .bg(if on { alpha(p.gold, 0.15) } else { alpha(p.surface, 0.7) })
-                    .text_color(if on { p.gold_hi } else { p.text_2 })
-                    .border_1()
-                    .border_color(if on { alpha(p.gold, 0.4) } else { p.border })
-                    .child(format!("{label}  {}", count(key)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.history_mode = key;
-                        cx.notify();
-                    }))
-            }))
+            h_flex().child(segmented(&p).children([("lol", "League of Legends"), ("tft", "TFT")].map(|(key, label)| {
+                segment(format!("mode-{key}").into(), label, Some(count(key)), key == mode, &p).on_click(cx.listener(move |this, _, _, cx| {
+                    this.history_mode = key;
+                    cx.notify();
+                }))
+            })))
         });
-        let summary = if mode == "tft" { tft_summary(&list, &p) } else { lol_summary(&list, &game, &p) };
+        let summary = if mode == "tft" { tft_summary(&list, &p) } else { lol_summary(&list, &p) };
         v_flex()
-            .gap(px(12.))
-            .pt(px(18.))
+            .pt(px(16.))
             .pb(px(12.))
+            .pr(px(6.))
             .children(switcher)
             .children(summary)
             .child(v_flex().gap(px(6.)).children(list.iter().map(|m| match_row(m, &lp, &game, &p))))
@@ -470,7 +501,7 @@ impl MainScreen {
         if queues.is_empty() {
             return empty_tab(
                 Icon::empty().path(crate::assets::icon("chart-line")),
-                "Todavía no hay registro de LP de esta cuenta.\nSe anota solo cada vez que cambia su rango (al detectarla en el cliente o al actualizar).",
+                ["Todavía no hay registro de LP de esta cuenta.", "Se anota solo cada vez que cambia su rango (al detectarla en el cliente o al actualizar)."],
                 &p,
             )
             .into_any_element();
@@ -482,31 +513,18 @@ impl MainScreen {
         let label = |pt: &LpPoint| format!("{} · {} LP", rank_label(&pt.tier, &pt.division), pt.lp);
         let changes: Vec<(LpPoint, i64)> =
             list.windows(2).map(|w| (w[1].clone(), lp_value(&w[1]) - lp_value(&w[0]))).filter(|(_, d)| *d != 0).rev().take(8).collect();
+        // El color de la línea es el de la liga actual de esa cola.
         let color = ui::tier_color(Some(&last.tier));
-        let since = chrono::DateTime::parse_from_rfc3339(&first.at).map(|d| d.with_timezone(&chrono::Local).format("%d-%m-%Y").to_string()).unwrap_or_default();
 
         let switcher = (queues.len() > 1).then(|| {
-            h_flex().gap(px(6.)).children(queues.iter().map(|(key, name)| {
-                let (key, on) = (*key, *key == q);
-                div()
-                    .id(SharedString::from(format!("queue-{key}")))
-                    .px(px(12.))
-                    .py(px(6.))
-                    .rounded_full()
-                    .cursor_pointer()
-                    .text_size(px(12.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .bg(if on { alpha(p.gold, 0.15) } else { alpha(p.surface, 0.7) })
-                    .text_color(if on { p.gold_hi } else { p.text_2 })
-                    .border_1()
-                    .border_color(if on { alpha(p.gold, 0.4) } else { p.border })
-                    .child(*name)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.progress_queue = key;
-                        this.lp_hover = None;
-                        cx.notify();
-                    }))
-            }))
+            h_flex().child(segmented(&p).children(queues.iter().map(|(key, name)| {
+                let key = *key;
+                segment(format!("queue-{key}").into(), name, None, key == q, &p).on_click(cx.listener(move |this, _, _, cx| {
+                    this.progress_queue = key;
+                    this.lp_hover = None;
+                    cx.notify();
+                }))
+            })))
         });
 
         // El gráfico se dibuja con el ancho real; el crosshair se pega al cambio más cercano al mouse.
@@ -553,7 +571,6 @@ impl MainScreen {
                 let x = g.x(ms(&pt.at)).clamp(80., g.w - 80.);
                 let y = g.y(lp_value(pt) as f64);
                 let diff = if i > 0 { lp_value(pt) - lp_value(&list[i - 1]) } else { 0 };
-                let when = chrono::DateTime::parse_from_rfc3339(&pt.at).map(|t| t.with_timezone(&chrono::Local).format("%d-%m-%Y %H:%M").to_string()).unwrap_or_default();
                 d.child(
                     v_flex()
                         .absolute()
@@ -574,46 +591,56 @@ impl MainScreen {
                         } else {
                             format!("{}{} LP", if diff > 0 { "+" } else { "−" }, diff.abs())
                         }))
-                        .child(div().text_size(px(11.)).text_color(p.muted).child(when)),
+                        .child(div().text_size(px(11.)).text_color(p.muted).child(local_date(&pt.at, true))),
                 )
             });
 
         v_flex()
-            .gap(px(12.))
-            .pt(px(18.))
+            .pt(px(16.))
             .pb(px(12.))
+            .pr(px(6.))
             .children(switcher)
             .child(
                 h_flex()
-                    .gap(px(10.))
-                    .child(stat(label(last), "Ahora", color, &p))
+                    .gap(px(26.))
+                    .items_end()
+                    .mb(px(10.))
+                    .child(stat(label(last), "Ahora", p.text, 17., &p))
                     .when(list.len() > 1, |d| {
                         d.child(stat(
                             format!("{}{} LP", if total > 0 { "+" } else if total < 0 { "−" } else { "" }, total.abs()),
-                            format!("desde {since}"),
+                            format!("desde {}", local_date(&first.at, false)),
                             if total > 0 { p.ok } else if total < 0 { p.loss } else { p.text },
+                            17.,
                             &p,
                         ))
                     }),
             )
             .child(chart)
             .child(if changes.is_empty() {
-                div().text_size(px(12.5)).text_color(p.muted).child("El gráfico se va llenando con cada cambio de rango.").into_any_element()
+                div().mt(px(10.)).text_size(px(12.5)).text_color(p.muted).child("El gráfico se va llenando con cada cambio de rango.").into_any_element()
             } else {
                 v_flex()
                     .gap(px(4.))
-                    .child(ui::section_label("Últimos cambios", &p))
+                    .mt(px(14.))
+                    .max_w(px(520.))
+                    .child(caps("Últimos cambios", &p).mb(px(4.)))
                     .children(changes.iter().map(|(pt, diff)| {
                         h_flex()
-                            .gap(px(14.))
+                            .gap(px(10.))
+                            .px(px(10.))
+                            .py(px(5.))
+                            .rounded(px(8.))
+                            .bg(alpha(p.surface, 0.6))
                             .text_size(px(12.5))
-                            .child(div().w(px(90.)).font_weight(FontWeight::BOLD).text_color(if *diff > 0 { p.ok } else { p.loss }).child(format!(
+                            .text_color(p.text_2)
+                            .child(div().w(px(110.)).text_color(if *diff > 0 { p.ok } else { p.loss }).child(format!(
                                 "{} {}{} LP",
                                 if *diff > 0 { "▲" } else { "▼" },
                                 if *diff > 0 { "+" } else { "−" },
                                 diff.abs()
                             )))
-                            .child(div().flex_1().text_color(p.text_2).child(label(pt)))
+                            .child(div().flex_1().child(label(pt)))
                             .child(div().text_color(p.muted).child(ui::ago(Some(&pt.at))))
                     }))
                     .into_any_element()
@@ -637,7 +664,7 @@ impl MainScreen {
         if top.is_empty() {
             return empty_tab(
                 Icon::new(IconName::Star),
-                "Todavía no hay maestrías de esta cuenta.\nSe cargan al detectarla en el cliente, o con Actualizar si tienes API key de Riot.",
+                ["Todavía no hay maestrías de esta cuenta.", "Se cargan al detectarla en el cliente, o con Actualizar si tienes API key de Riot."],
                 &p,
             )
             .into_any_element();
@@ -645,7 +672,7 @@ impl MainScreen {
         let score = a.mastery.as_ref().and_then(|m| m["score"].as_i64()).unwrap_or(0);
         let total: i64 = top.iter().map(|(_, _, pts)| pts).sum();
         let max = top[0].2.max(1);
-        let fmt_points = |n: i64| {
+        let short = |n: i64| {
             if n >= 1_000_000 {
                 format!("{:.1} M", n as f64 / 1_000_000.)
             } else if n >= 1000 {
@@ -655,60 +682,87 @@ impl MainScreen {
             }
         };
         v_flex()
-            .gap(px(12.))
-            .pt(px(18.))
+            .pt(px(16.))
             .pb(px(12.))
+            .pr(px(6.))
             .child(
                 h_flex()
-                    .gap(px(10.))
-                    .child(stat(score.to_string(), "Puntaje de maestría", p.text, &p))
-                    .child(stat(fmt_points(total), format!("Puntos en su top {}", top.len()), p.text, &p)),
+                    .gap(px(26.))
+                    .items_end()
+                    .mb(px(10.))
+                    .child(stat(score.to_string(), "Puntaje de maestría", p.text, 17., &p))
+                    .child(stat(short(total), format!("Puntos en su top {}", top.len()), p.text, 17., &p)),
             )
-            .child(v_flex().gap(px(6.)).children(top.iter().enumerate().map(|(i, (champ, level, points))| {
+            .child(v_flex().gap(px(6.)).max_w(px(620.)).children(top.iter().enumerate().map(|(i, (champ, level, points))| {
+                let podium = i < 3;
                 let name = Some(game.champion(*champ)).filter(|n| !n.is_empty()).unwrap_or_else(|| "Campeón".into());
                 h_flex()
                     .gap(px(12.))
-                    .px(px(12.))
-                    .py(px(8.))
+                    .pl(px(8.))
+                    .pr(px(12.))
+                    .py(px(7.))
                     .rounded(px(10.))
-                    .bg(alpha(p.surface, if i < 3 { 0.9 } else { 0.7 }))
+                    .bg(alpha(p.surface, 0.72))
                     .border_1()
-                    .border_color(if i < 3 { alpha(p.gold, 0.3) } else { p.border })
-                    .child(div().w(px(22.)).text_size(px(13.)).font_weight(FontWeight::BOLD).text_color(if i < 3 { p.gold } else { p.muted }).child((i + 1).to_string()))
+                    .border_color(if podium { alpha(p.gold, 0.28) } else { p.border })
+                    .child(div().w(px(18.)).text_center().text_size(px(12.)).font_weight(FontWeight::BOLD).text_color(if podium { p.gold_hi } else { p.muted }).child((i + 1).to_string()))
                     .child(
-                        div().relative().size(px(40.)).child(img(ui::champion_icon_url(*champ)).size_full().rounded(px(8.))).child(
-                            div()
-                                .absolute()
-                                .right(px(-4.))
-                                .bottom(px(-4.))
-                                .px(px(5.))
-                                .rounded_full()
-                                .bg(p.bg)
-                                .border_1()
-                                .border_color(p.border_strong)
-                                .text_size(px(10.))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(p.gold_hi)
-                                .child(level.to_string()),
-                        ),
+                        div()
+                            .relative()
+                            .size(px(40.))
+                            .flex_none()
+                            .child(img(ui::champion_icon_url(*champ)).size_full().rounded_full().border_2().border_color(alpha(p.gold, 0.55)))
+                            .child(
+                                div()
+                                    .absolute()
+                                    .right(px(-6.))
+                                    .bottom(px(-4.))
+                                    .min_w(px(20.))
+                                    .h(px(18.))
+                                    .px(px(5.))
+                                    .rounded_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .bg(linear_gradient(180., linear_color_stop(p.gold_hi, 0.), linear_color_stop(p.gold, 1.)))
+                                    .text_size(px(10.5))
+                                    .font_weight(FontWeight::EXTRA_BOLD)
+                                    .text_color(p.on_accent)
+                                    .child(level.to_string()),
+                            ),
                     )
                     .child(
                         v_flex()
                             .flex_1()
-                            .gap(px(5.))
+                            .min_w_0()
                             .child(
                                 h_flex()
                                     .justify_between()
-                                    .child(div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).text_color(p.text).child(name))
-                                    .child(div().text_size(px(12.)).text_color(p.muted).child(format!("{} pts", points))),
+                                    .gap(px(10.))
+                                    .child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).text_color(p.text).child(name))
+                                    .child(div().text_size(px(12.)).text_color(p.text_2).child(format!("{} pts", thousands(*points)))),
                             )
                             .child(
-                                div().h(px(4.)).w_full().rounded_full().bg(p.surface_3).child(
-                                    div().h_full().w(relative(*points as f32 / max as f32)).rounded_full().bg(if i < 3 { p.gold } else { p.cyan }),
-                                ),
+                                div()
+                                    .mt(px(6.))
+                                    .h(px(3.))
+                                    .w_full()
+                                    .rounded(px(3.))
+                                    .bg(hsla(0., 0., 1., 0.08))
+                                    .child(div().h_full().w(relative(*points as f32 / max as f32)).rounded(px(3.)).bg(p.gold)),
                             ),
                     )
             })))
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn thousands_like_spanish_locale() {
+        assert_eq!(super::thousands(512340), "512.340");
+        assert_eq!(super::thousands(1234567), "1.234.567");
+        assert_eq!(super::thousands(999), "999");
     }
 }
