@@ -4,16 +4,27 @@ use gpui_kit::Context;
 use sv_core::gamedata::GameData;
 use sv_core::store::Store;
 
+/// Avance de "Actualizar con la API de Riot": cuántas van, de cuántas y cuál se está consultando.
+#[derive(Clone, Debug)]
+pub struct RiotProgress {
+    pub done: usize,
+    pub total: usize,
+    pub name: String,
+}
+
 pub struct Vault {
     pub store: Store,
     pub game: GameData,
+    /// Hay una actualización con la API de Riot en curso (y su avance, si son varias cuentas).
+    pub riot_busy: bool,
+    pub riot_progress: Option<RiotProgress>,
 }
 
 impl Vault {
     pub fn new() -> Self {
         let store = Store::new(Default::default());
         let game = GameData::load_cache(&store.paths);
-        Self { store, game }
+        Self { store, game, riot_busy: false, riot_progress: None }
     }
 
     /// Cambia algo de la bóveda y avisa a las vistas para que se redibujen.

@@ -42,9 +42,9 @@ pub struct Match {
     // TFT
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement: Option<i64>,
-    /// Minileyenda usada en la partida.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub companion: Option<i64>,
+    /// Minileyenda usada en la partida (contentId, un UUID).
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "companion_id")]
+    pub companion: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -59,7 +59,21 @@ fn num(v: &Value) -> Option<i64> {
     v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))
 }
 
-fn iso(ms: i64) -> String {
+/// Id como texto (el cliente lo manda como texto o número); None si falta o es 0.
+fn id_text(v: &Value) -> Option<String> {
+    let s = match v {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    (!s.is_empty() && s != "0").then_some(s)
+}
+
+fn companion_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(id_text(&Value::deserialize(d)?))
+}
+
+pub(crate) fn iso(ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ms)
         .unwrap_or_default()
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -120,7 +134,7 @@ pub fn from_tft_game(g: &Value, puuid: &str) -> Option<Match> {
         items: None,
         lvl: num(&me["level"]),
         placement,
-        companion: num(&me["companion"]["content_ID"]).filter(|c| *c != 0),
+        companion: id_text(&me["companion"]["content_ID"]),
         extra: Map::new(),
     })
 }
@@ -170,9 +184,9 @@ mod tests {
     #[test]
     fn converts_a_tft_game_for_the_given_player() {
         let g = json!({ "metadata": { "match_id": "LA2_1" }, "json": { "game_datetime": 1_700_000_000_000i64, "game_length": 1500.4, "queue_id": 1100,
-            "participants": [{ "puuid": "other", "placement": 1 }, { "puuid": "me", "placement": 3, "level": 8, "companion": { "content_ID": 77 } }] } });
+            "participants": [{ "puuid": "other", "placement": 1 }, { "puuid": "me", "placement": 3, "level": 8, "companion": { "content_ID": "91f2e228" } }] } });
         let m = from_tft_game(&g, "me").unwrap();
-        assert_eq!((m.id.as_str(), m.placement, m.win, m.companion), ("tft-LA2_1", Some(3), true, Some(77)));
+        assert_eq!((m.id.as_str(), m.placement, m.win, m.companion.as_deref()), ("tft-LA2_1", Some(3), true, Some("91f2e228")));
         assert!(from_tft_game(&g, "nobody").is_none());
     }
 

@@ -83,7 +83,15 @@ pub struct MainScreen {
     pub(crate) play_hover: bool,
     /// Ancho útil del panel de detalle en el último dibujo.
     pub(crate) detail_w: f32,
+    /// Ancho del panel de la rueda en el último dibujo.
+    pub(crate) side_w: f32,
     parallax: Parallax,
+    /// Detección del cliente de LoL (ver client.rs): consulta en curso, cuentas ya avisadas, la
+    /// cuenta abierta que no está guardada (para el aviso de vincular) y las tareas periódicas.
+    pub(crate) detecting: bool,
+    pub(crate) seen_puuids: std::collections::HashSet<String>,
+    pub(crate) detected: Option<sv_core::snapshot::Snapshot>,
+    pub(crate) client_tasks: Vec<Task<()>>,
     _subs: Vec<Subscription>,
 }
 
@@ -212,10 +220,16 @@ impl MainScreen {
             wheel: WheelState::default(),
             play_hover: false,
             detail_w: 600.,
+            side_w: 400.,
             parallax: Parallax::default(),
+            detecting: false,
+            seen_puuids: Default::default(),
+            detected: None,
+            client_tasks: Vec::new(),
             _subs: subs,
         };
         this.refresh_sessions(cx);
+        this.start_client_watch(window, cx);
         // Solo en desarrollo: SV_DEV_SELECT y SV_DEV_TAB eligen la cuenta y la pestaña al abrir.
         #[cfg(debug_assertions)]
         {
@@ -226,6 +240,17 @@ impl MainScreen {
                 Ok("champions") => Tab::Champions,
                 _ => Tab::Summary,
             };
+            // SV_DEV_DETECTED simula una cuenta abierta en el cliente que no está guardada.
+            if std::env::var("SV_DEV_DETECTED").is_ok() {
+                this.detected = Some(sv_core::snapshot::Snapshot {
+                    puuid: "dev".into(),
+                    game_name: "Cuenta Nueva".into(),
+                    tag_line: "LAS".into(),
+                    server: "LAS".into(),
+                    level: Some(87),
+                    ..Default::default()
+                });
+            }
             // SV_DEV_DIALOG abre un diálogo al arrancar (para revisarlos sin hacer clic).
             if let Ok(which) = std::env::var("SV_DEV_DIALOG") {
                 let (vault, selected) = (this.vault.clone(), this.selected.clone());
@@ -235,6 +260,7 @@ impl MainScreen {
                         "account" => crate::dialogs::open_account(vault, acc, window, cx),
                         "add" => crate::dialogs::open_add(vault, window, cx),
                         "import" => crate::dialogs::open_import(vault, window, cx),
+                        "riotkey" => crate::dialogs::open_riot_key(vault, None, window, cx),
                         _ => {}
                     }
                 });
@@ -556,7 +582,13 @@ impl Render for MainScreen {
         let p = palette(cx);
         let has_accounts = self.vault.read(cx).store.data().is_some_and(|d| !d.accounts.is_empty());
         if !has_accounts {
-            return div().size_full().child(self.empty_view(cx)).into_any_element();
+            self.side_w = 0.;
+            return div()
+                .relative()
+                .size_full()
+                .child(self.empty_view(cx))
+                .children(self.client_overlays(cx))
+                .into_any_element();
         }
         let list = self.visible(cx);
         if !list.iter().any(|a| Some(&a.id) == self.selected.as_ref()) {
@@ -569,6 +601,7 @@ impl Render for MainScreen {
         let side_w = (vw * 0.44).max(400.);
         // Ancho útil del detalle (sin sus márgenes), para la grilla de tarjetas de rango.
         self.detail_w = vw - side_w - 22. - 36. - 6.;
+        self.side_w = side_w;
 
         let account = self.selected_account(cx);
         let tier = account.as_ref().map(ui::account_tier_color).unwrap_or_else(|| ui::tier_color(None));
@@ -623,6 +656,7 @@ impl Render for MainScreen {
                 linear_color_stop(alpha(p.bg, 0.96), 1.),
             )))
             .child(h_flex().relative().size_full().items_start().child(self.side(side_w, &list, cx)).when_some(account, |d, a| d.child(self.detail(&a, cx))))
+            .children(self.client_overlays(cx))
             .into_any_element()
     }
 }

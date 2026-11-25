@@ -118,7 +118,7 @@ pub(crate) fn mini_match(m: &Match, game: &GameData, p: &Palette) -> Div {
     let color = result_color(m, p);
     let base = div().relative().size(px(32.)).flex_none().rounded(px(7.)).overflow_hidden().bg(p.surface_3);
     if m.mode == "tft" {
-        let legend = m.companion.and_then(|c| game.companion_url(c));
+        let legend = m.companion.as_deref().and_then(|c| game.companion_url(c));
         let number = div()
             .absolute()
             .inset_0()
@@ -514,7 +514,7 @@ impl MainScreen {
                 .border_color(p.border_strong)
                 .text_color(p.text)
         };
-        let (vault_edit, acc) = (self.vault.clone(), a.clone());
+        let (vault_edit, acc, acc_id) = (self.vault.clone(), a.clone(), a.id.clone());
         h_flex()
             .gap(px(10.))
             .pt(px(16.))
@@ -527,7 +527,8 @@ impl MainScreen {
             .child(
                 subtle("refresh", Icon::new(IconName::RefreshCw), "Actualizar")
                     .tooltip("Lee rangos, historial y maestrías desde el cliente de LoL (esta cuenta tiene que estar abierta ahí)")
-                    .on_click(|_, window, cx| window.push_notification(Notification::info("Leer la cuenta desde el cliente de LoL llega en la fase 5."), cx)),
+                    .loading(self.detecting)
+                    .on_click(cx.listener(move |this, _, window, cx| this.detect(true, Some(acc_id.clone()), window, cx))),
             )
             .child(div().flex_1())
             .child(div().text_size(px(11.5)).text_color(p.muted).child(caption))

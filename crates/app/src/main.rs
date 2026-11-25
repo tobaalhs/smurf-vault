@@ -3,6 +3,7 @@
 
 mod app;
 mod assets;
+mod client;
 mod detail;
 mod dialogs;
 mod http;

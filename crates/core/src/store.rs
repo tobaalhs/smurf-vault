@@ -8,6 +8,7 @@ use crate::local::{History, LpLog};
 use crate::matches::Match;
 use crate::model::{Account, Ranks, VaultData};
 use crate::paths::{write_atomic, Paths};
+use crate::snapshot::Snapshot;
 use crate::vault::{self, Envelope, Key};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -374,6 +375,140 @@ impl Store {
         self.persist().map(|_| ())
     }
 
+    // ---------- datos desde el cliente o la API de Riot ----------
+
+    /// Aplica a la cuenta lo leído del cliente o de la API (no guarda la bóveda; sí el historial y
+    /// el LP). Si cambió la cuenta de Riot vinculada, se olvida lo de la anterior.
+    pub fn apply_snapshot(&mut self, id: &str, snap: &Snapshot) -> Result<(), String> {
+        let now = now_iso();
+        let s = self.need()?;
+        let acc = s.data.account_mut(id).ok_or("Cuenta no encontrada")?;
+        let (mut history_changed, mut lp_changed) = (false, false);
+        if acc.puuid.as_deref() != Some(snap.puuid.as_str()) {
+            acc.api_puuid = None;
+            if acc.puuid.is_some() {
+                history_changed |= s.history.remove(id);
+                lp_changed |= s.lp.remove(id);
+            }
+        }
+        if snap.api_puuid.is_some() {
+            acc.api_puuid = snap.api_puuid.clone();
+        }
+        acc.puuid = Some(snap.puuid.clone());
+        acc.game_name = snap.game_name.clone();
+        acc.tag_line = snap.tag_line.clone();
+        acc.level = snap.level;
+        acc.icon_id = snap.icon_id;
+        acc.last_synced_at = Some(now.clone());
+        // None = no se pudo consultar: se conserva lo anterior.
+        for (queue, update) in [("solo", &snap.ranks.solo), ("flex", &snap.ranks.flex), ("tft", &snap.ranks.tft), ("doubleUp", &snap.ranks.double_up)] {
+            if let (Some(value), Some(slot)) = (update, acc.ranks.slot(queue)) {
+                *slot = value.clone();
+            }
+        }
+        if !snap.server.is_empty() {
+            acc.server = snap.server.clone();
+        }
+        // Nos quedamos con la partida más reciente que conozcamos.
+        if let Some(at) = &snap.last_played_at {
+            if acc.last_played_at.as_ref().is_none_or(|prev| prev <= at) {
+                acc.last_played_at = Some(at.clone());
+            }
+        }
+        if snap.background_skin_id.is_some() {
+            acc.background_skin_id = snap.background_skin_id;
+        }
+        if snap.crest.is_some() {
+            acc.crest = snap.crest.clone();
+        }
+        if snap.mastery.is_some() {
+            acc.mastery = snap.mastery.clone();
+        }
+        // El baneo solo lo sabe el cliente: lo de la API (None) no lo pisa.
+        if let Some(ban) = &snap.ban {
+            acc.ban = ban.clone();
+        }
+        let ranks = acc.ranks.clone();
+        lp_changed |= s.lp.record(id, &ranks, &now);
+        if let Some(m) = &snap.matches {
+            history_changed |= s.history.add(id, m);
+        }
+        if history_changed {
+            self.save_history()?;
+        }
+        if lp_changed {
+            self.save_lp()?;
+        }
+        Ok(())
+    }
+
+    /// Cuenta guardada que está abierta en el cliente: 1) por PUUID, 2) por usuario de login,
+    /// 3) por Riot ID. En 2 y 3 solo si hay exactamente una coincidencia, para no vincular mal.
+    pub fn find_detected(&self, snap: &Snapshot) -> Option<String> {
+        let accounts = &self.data()?.accounts;
+        if let Some(a) = accounts.iter().find(|a| a.owns_puuid(&snap.puuid)) {
+            return Some(a.id.clone());
+        }
+        let unique = |list: Vec<&Account>| (list.len() == 1).then(|| list[0].id.clone());
+        if !snap.username.is_empty() {
+            if let Some(id) = unique(accounts.iter().filter(|a| norm(&a.username) == norm(&snap.username)).collect()) {
+                return Some(id);
+            }
+        }
+        if !snap.game_name.is_empty() && !snap.tag_line.is_empty() {
+            return unique(
+                accounts
+                    .iter()
+                    .filter(|a| a.puuid.is_none() && norm(&a.game_name) == norm(&snap.game_name) && norm(&a.tag_line) == norm(&snap.tag_line))
+                    .collect(),
+            );
+        }
+        None
+    }
+
+    /// Vincula lo leído del cliente a la cuenta `id` (una cuenta de Riot solo puede estar en una
+    /// entrada) y guarda la bóveda solo si cambió algo. Devuelve true si cambió.
+    pub fn link_snapshot(&mut self, id: &str, snap: &Snapshot) -> Result<bool, String> {
+        let s = self.need()?;
+        let before = serde_json::to_value(&s.data.accounts).ok();
+        for a in s.data.accounts.iter_mut() {
+            if a.id != id && a.puuid.as_deref() == Some(snap.puuid.as_str()) {
+                a.puuid = None;
+            }
+        }
+        self.apply_snapshot(id, snap)?;
+        // lastSyncedAt cambia siempre: no cuenta como cambio de verdad.
+        let strip = |v: Option<Value>| {
+            v.map(|mut v| {
+                if let Some(list) = v.as_array_mut() {
+                    for a in list {
+                        a.as_object_mut().map(|o| o.remove("lastSyncedAt"));
+                    }
+                }
+                v
+            })
+        };
+        let after = serde_json::to_value(&self.need()?.data.accounts).ok();
+        let changed = strip(before) != strip(after);
+        if changed {
+            self.persist()?;
+            self.remember_lock_splashes();
+        }
+        Ok(changed)
+    }
+
+    /// La partida terminó: la cuenta del PUUID jugó ahora. Devuelve su id si cambió.
+    pub fn mark_played(&mut self, puuid: &str, at: &str) -> Option<String> {
+        let acc = self.session.as_mut()?.data.accounts.iter_mut().find(|a| a.owns_puuid(puuid))?;
+        if acc.last_played_at.as_deref().is_some_and(|prev| prev > at) {
+            return None;
+        }
+        acc.last_played_at = Some(at.to_string());
+        let id = acc.id.clone();
+        self.persist().ok()?;
+        Some(id)
+    }
+
     // ---------- sesiones guardadas del Riot Client ----------
 
     /// { idCuenta: fecha en que se guardó su sesión }
@@ -478,6 +613,45 @@ mod tests {
         store.lock();
         unlock(&mut store, "clave-nueva").unwrap();
         assert_eq!(store.load_session(&id).unwrap()["a.yaml"], "QUJD");
+        let _ = std::fs::remove_dir_all(&store.paths.dir);
+    }
+
+    #[test]
+    fn detected_account_is_found_linked_and_updated() {
+        use crate::model::Rank;
+        use crate::snapshot::{RankUpdates, Snapshot};
+        let mut store = temp_store("detect");
+        store.finish_create(Opened::new_vault("clave-segura").unwrap()).unwrap();
+        let a = store.save_account(AccountInput { username: Some("Main_User".into()), ..Default::default() }).unwrap();
+        let b = store.save_account(AccountInput { username: Some("otra".into()), ..Default::default() }).unwrap();
+        let gold = Rank { tier: "GOLD".into(), division: "I".into(), lp: 50, ..Default::default() };
+        let snap = Snapshot {
+            username: "main_user".into(),
+            puuid: "P1".into(),
+            game_name: "Uno".into(),
+            tag_line: "LAS".into(),
+            server: "LAS".into(),
+            ban: Some(None),
+            ranks: RankUpdates { solo: Some(Some(gold)), flex: Some(None), ..Default::default() },
+            ..Default::default()
+        };
+        // Por usuario de login, sin importar mayúsculas.
+        assert_eq!(store.find_detected(&snap).as_deref(), Some(a.as_str()));
+        assert!(store.link_snapshot(&a, &snap).unwrap(), "primera vez cambia");
+        assert!(!store.link_snapshot(&a, &snap).unwrap(), "lo mismo otra vez no guarda");
+        let acc = store.data().unwrap().account(&a).unwrap();
+        assert_eq!((acc.puuid.as_deref(), acc.riot_id().as_str()), (Some("P1"), "Uno#LAS"));
+        assert_eq!(acc.ranks.solo.as_ref().unwrap().lp, 50);
+        // Ya vinculada: se reconoce por PUUID aunque cambie el usuario.
+        let other_user = Snapshot { username: "x".into(), ..snap.clone() };
+        assert_eq!(store.find_detected(&other_user).as_deref(), Some(a.as_str()));
+        // Vincularla a otra entrada la quita de la primera.
+        store.link_snapshot(&b, &snap).unwrap();
+        assert!(store.data().unwrap().account(&a).unwrap().puuid.is_none());
+        // Un rango que no se pudo consultar (None) no borra el guardado.
+        let partial = Snapshot { ranks: RankUpdates::default(), ..snap };
+        store.link_snapshot(&b, &partial).unwrap();
+        assert_eq!(store.data().unwrap().account(&b).unwrap().ranks.solo.as_ref().unwrap().tier, "GOLD");
         let _ = std::fs::remove_dir_all(&store.paths.dir);
     }
 

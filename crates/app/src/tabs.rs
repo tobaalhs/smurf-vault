@@ -181,7 +181,7 @@ fn match_row(m: &Match, lp: &BTreeMap<String, Vec<LpPoint>>, game: &GameData, p:
         .child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).rounded_l(px(10.)).bg(color));
     let tile = |d: Div| d.size(px(42.)).flex_none().rounded(px(8.)).overflow_hidden();
     if m.mode == "tft" {
-        let legend = m.companion.and_then(|c| game.companion_url(c));
+        let legend = m.companion.as_deref().and_then(|c| game.companion_url(c));
         let number = div()
             .absolute()
             .inset_0()

@@ -137,9 +137,20 @@ impl AccountForm {
             notes: Some(self.notes.read(cx).value().to_string()),
         };
         let editing = self.id.is_some();
+        let before = self.id.as_ref().and_then(|id| self.vault.read(cx).store.data()?.account(id).map(|a| a.riot_id().to_lowercase()));
+        let has_key = self.vault.read(cx).store.data().is_some_and(|d| !d.settings.riot_api_key.is_empty());
         match self.vault.update(cx, |vault, cx| vault.change(cx, |s| s.save_account(input))) {
-            Ok(_) => {
-                window.push_notification(Notification::success(if editing { "Cambios guardados" } else { "Cuenta agregada" }), cx);
+            Ok(id) => {
+                // Riot ID corregido: se busca al tiro la cuenta nueva si hay API key.
+                let after = self.vault.read(cx).store.data().and_then(|d| d.account(&id)).filter(|a| !a.game_name.is_empty() && !a.tag_line.is_empty());
+                let changed = after.is_some_and(|a| before.as_deref() != Some(a.riot_id().to_lowercase().as_str()));
+                if changed && has_key {
+                    window.push_notification(Notification::info("Riot ID cambiado, buscando la cuenta…"), cx);
+                    let vault = self.vault.clone();
+                    window.defer(cx, move |window, cx| crate::client::refresh_riot(vault, Some(vec![id]), window, cx));
+                } else {
+                    window.push_notification(Notification::success(if editing { "Cambios guardados" } else { "Cuenta agregada" }), cx);
+                }
                 true
             }
             Err(e) => {
@@ -380,7 +391,86 @@ pub fn open_import(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
     });
 }
 
+// ---------- API key de Riot ----------
+
+/// Pide la API key de Riot y, al guardarla, sigue con la actualización que la necesitaba.
+pub fn open_riot_key(vault: Entity<Vault>, ids: Option<Vec<String>>, window: &mut Window, cx: &mut App) {
+    let key = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"));
+    key.update(cx, |s, cx| s.focus(window, cx));
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let p = palette(cx);
+        let (key_ok, vault, ids) = (key.clone(), vault.clone(), ids.clone());
+        let step = |n: &'static str, text: Div| {
+            h_flex()
+                .gap(px(10.))
+                .items_start()
+                .child(div().size(px(22.)).flex_none().rounded_full().bg(alpha(p.gold, 0.15)).text_color(p.gold).text_size(px(12.)).font_weight(FontWeight::BOLD).flex().items_center().justify_center().child(n))
+                .child(text.flex_1().min_w_0().text_size(px(13.)).text_color(p.text_2))
+        };
+        below_bar(dialog)
+            .title(dialog_title("Actualizar rangos sin abrir el juego"))
+            .w(px(540.))
+            .child(
+                v_flex()
+                    .gap(px(12.))
+                    .child(div().text_size(px(13.)).text_color(p.text_2).child(
+                        "Para consultar todas tus cuentas a la vez, Smurf Vault usa la API oficial de Riot, que pide una API key gratuita.",
+                    ))
+                    .child(step(
+                        "1",
+                        h_flex().flex_wrap().child("Entra a ").child(
+                            div()
+                                .id("riot-portal")
+                                .text_color(p.cyan)
+                                .cursor_pointer()
+                                .child("developer.riotgames.com")
+                                .on_click(|_, _, cx| cx.open_url("https://developer.riotgames.com/")),
+                        ).child(" con tu cuenta de Riot."),
+                    ))
+                    .child(step(
+                        "2",
+                        div().child("Copia la Development API Key y pégala aquí. Dura 24 h; para una permanente, pide una Personal API Key ahí mismo."),
+                    ))
+                    .child(Input::new(&key).mask_toggle())
+                    .child(
+                        h_flex()
+                            .gap(px(8.))
+                            .p(px(10.))
+                            .rounded(px(8.))
+                            .bg(alpha(p.cyan, 0.08))
+                            .child(Icon::empty().path(assets::icon("gamepad-2")).text_color(p.cyan))
+                            .child(div().flex_1().min_w_0().text_size(px(12.5)).text_color(p.text_2).child(
+                                "¿Sin key? Con el cliente de LoL abierto, la cuenta en la que inicias sesión se actualiza sola.",
+                            )),
+                    ),
+            )
+            .footer(
+                h_flex()
+                    .w_full()
+                    .gap(px(8.))
+                    .child(div().flex_1())
+                    .child(Button::new("riot-later").label("Ahora no").on_click(|_, window, cx| window.close_dialog(cx)))
+                    .child(Button::new("riot-save").primary().label("Guardar y actualizar").on_click(move |_, window, cx| {
+                        let value = key_ok.read(cx).value().trim().to_string();
+                        if !value.starts_with("RGAPI-") {
+                            window.push_notification(Notification::error("La key debería empezar con RGAPI-"), cx);
+                            return;
+                        }
+                        let mut patch = serde_json::Map::new();
+                        patch.insert("riotApiKey".into(), value.into());
+                        match vault.update(cx, |v, cx| v.change(cx, |s| s.save_settings(patch))) {
+                            Ok(()) => {
+                                window.close_dialog(cx);
+                                crate::client::refresh_riot(vault.clone(), ids.clone(), window, cx);
+                            }
+                            Err(e) => window.push_notification(Notification::error(e), cx),
+                        }
+                    })),
+            )
+    });
+}
+
 /// Título de diálogo como en Electron (17 px, seminegrita).
-fn dialog_title(text: &'static str) -> Div {
+pub fn dialog_title(text: &'static str) -> Div {
     div().pb(px(12.)).text_size(px(17.)).font_weight(FontWeight::SEMIBOLD).child(text)
 }

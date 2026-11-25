@@ -29,7 +29,8 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         window.set_window_title("Smurf Vault");
         let vault = cx.new(|_| Vault::new());
-        let lock = cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
+        crate::client::refresh_game_data(vault.clone(), cx);
+        let lock =cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
         let mut this = Self { vault, screen: Screen::Lock(lock.clone()), _screen_sub: None };
         this.watch_lock(&lock, window, cx);
         this
@@ -120,13 +121,15 @@ impl AppView {
             }
         };
         Button::new("more").icon(Icon::new(IconName::Ellipsis)).dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            let (manual, import, view) = (vault.clone(), vault.clone(), view.clone());
+            let (manual, import, riot, view) = (vault.clone(), vault.clone(), vault.clone(), view.clone());
             menu.item(
                 PopupMenuItem::new("Agregar cuenta a mano")
                     .icon(Icon::empty().path(assets::icon("pencil")))
                     .on_click(move |_, window, cx| dialogs::open_account(manual.clone(), None, window, cx)),
             )
-            .item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(soon("Actualizar con la API de Riot")))
+            .item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(move |_, window, cx| {
+                crate::client::refresh_riot(riot.clone(), None, window, cx)
+            }))
             .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(soon("Herramientas")))
             .item(
                 PopupMenuItem::new("Importar desde txt")
