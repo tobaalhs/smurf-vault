@@ -33,6 +33,9 @@ impl AppView {
         crate::client::refresh_game_data(vault.clone(), cx);
         // Autoaceptar y aparecer desconectado corren solos (también con la bóveda bloqueada).
         crate::tools_dialog::apply_config(&vault, cx);
+        if let Err(e) = vault.update(cx, |v, _| v.sync_remote()) {
+            window.push_notification(Notification::error(e), cx);
+        }
         cx.spawn_in(window, async move |_, cx| {
             let mut seen = sv_core::tools::tools().accepted_count();
             loop {

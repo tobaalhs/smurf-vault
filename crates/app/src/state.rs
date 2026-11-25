@@ -20,13 +20,43 @@ pub struct Vault {
     pub riot_progress: Option<RiotProgress>,
     /// Se pidió "Abrir login de Riot" (agregar cuenta); la pantalla principal lo atiende.
     pub open_login_requested: bool,
+    /// Servidor del control desde el celular, mientras está encendido.
+    pub remote: Option<sv_core::remote::RemoteServer>,
 }
 
 impl Vault {
     pub fn new() -> Self {
         let store = Store::new(Default::default());
         let game = GameData::load_cache(&store.paths);
-        Self { store, game, riot_busy: false, riot_progress: None, open_login_requested: false }
+        Self { store, game, riot_busy: false, riot_progress: None, open_login_requested: false, remote: None }
+    }
+
+    /// Enciende o apaga el control desde el celular según la configuración. El código se guarda al
+    /// generarlo: así el QR ya escaneado sigue sirviendo después de reiniciar.
+    pub fn sync_remote(&mut self) -> Result<(), String> {
+        if !self.store.config.remote_enabled {
+            self.remote = None;
+            return Ok(());
+        }
+        if self.store.config.remote_token.is_none() {
+            self.store.config.remote_token = Some(sv_core::remote::new_token());
+            let _ = self.store.save_config();
+        }
+        if self.remote.is_none() {
+            let token = self.store.config.remote_token.clone().unwrap_or_default();
+            self.remote = Some(sv_core::remote::RemoteServer::start(token, self.store.paths.clone())?);
+        }
+        Ok(())
+    }
+
+    /// Código nuevo: los celulares conectados con el anterior quedan afuera.
+    pub fn new_remote_code(&mut self) {
+        let token = sv_core::remote::new_token();
+        self.store.config.remote_token = Some(token.clone());
+        let _ = self.store.save_config();
+        if let Some(r) = &self.remote {
+            r.set_token(token);
+        }
     }
 
     /// Cambia algo de la bóveda y avisa a las vistas para que se redibujen.

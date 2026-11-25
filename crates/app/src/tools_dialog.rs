@@ -10,7 +10,7 @@ use crate::ui::alpha;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{h_flex, v_flex, Icon, IconName, WindowExt};
+use gpui_kit::component::{h_flex, v_flex, Icon, IconName, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use std::time::Duration;
@@ -36,6 +36,11 @@ pub struct ToolsPanel {
     skins: Option<Vec<(Skin, String)>>,
     skins_error: bool,
     applying: Option<i64>,
+    /// Dirección, QR y celulares conectados del control desde el celular (se refresca cada segundo).
+    remote: Option<sv_core::remote::RemoteStatus>,
+    remote_qr: Option<(String, Vec<bool>, usize)>,
+    remote_error: Option<SharedString>,
+    scroll: ScrollHandle,
     _poll: Task<()>,
     _sub: Subscription,
 }
@@ -47,7 +52,12 @@ impl ToolsPanel {
         // El estado del cliente (conectado / esperando partida) se refresca mientras está abierto.
         let poll = cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(Duration::from_secs(1)).await;
-            if this.update(cx, |_, cx| cx.notify()).is_err() {
+            if this.update(cx, |this, cx| {
+                this.refresh_remote(cx);
+                cx.notify();
+            })
+            .is_err()
+            {
                 break;
             }
         });
@@ -76,17 +86,109 @@ impl ToolsPanel {
             .ok();
         })
         .detach();
-        Self { vault, search, skins: None, skins_error: false, applying: None, _poll: poll, _sub: sub }
+        let mut this = Self {
+            vault,
+            search,
+            skins: None,
+            skins_error: false,
+            applying: None,
+            remote: None,
+            remote_qr: None,
+            remote_error: None,
+            scroll: ScrollHandle::new(),
+            _poll: poll,
+            _sub: sub,
+        };
+        this.refresh_remote(cx);
+        // Solo en desarrollo: SV_DEV_SCROLL baja el diálogo (para revisar las secciones de abajo).
+        #[cfg(debug_assertions)]
+        if let Some(y) = std::env::var("SV_DEV_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
+            this.scroll.set_offset(point(px(0.), px(-y)));
+        }
+        this
     }
 
-    fn set_config(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut sv_core::config::Config)) {
+    fn refresh_remote(&mut self, cx: &App) {
+        self.remote = self.vault.read(cx).remote.as_ref().map(|r| r.status());
+        let url = self.remote.as_ref().and_then(|r| r.url.clone());
+        if self.remote_qr.as_ref().map(|q| &q.0) != url.as_ref() {
+            self.remote_qr = url.and_then(|u| sv_core::remote::qr_matrix(&u).map(|(m, w)| (u, m, w)));
+        }
+    }
+
+    fn set_config(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut sv_core::config::Config)) {
         self.vault.update(cx, |v, cx| {
             f(&mut v.store.config);
             let _ = v.store.save_config();
             cx.notify();
         });
         apply_config(&self.vault, cx);
+        self.remote_error = self.vault.update(cx, |v, _| v.sync_remote()).err().map(Into::into);
+        self.refresh_remote(cx);
         cx.notify();
+    }
+
+    fn remote_body(&self, cx: &mut Context<Self>) -> AnyElement {
+        let p = palette(cx);
+        let Some(status) = &self.remote else {
+            return note_text(self.remote_error.clone().unwrap_or_else(|| "Apagado".into()), &p).into_any_element();
+        };
+        let qr = self.remote_qr.clone();
+        let clients = match status.clients {
+            0 => "Ningún celular conectado todavía".to_string(),
+            1 => "1 celular conectado".to_string(),
+            n => format!("{n} celulares conectados"),
+        };
+        h_flex()
+            .items_start()
+            .gap(px(16.))
+            .child(
+                div().size(px(150.)).flex_none().rounded(px(10.)).bg(gpui_kit::white()).p(px(6.)).child(
+                    canvas(
+                        |_, _, _| (),
+                        move |b, _, window, _| {
+                            let Some((_, m, w)) = &qr else { return };
+                            let cell = f32::from(b.size.width) / *w as f32;
+                            let dark: Hsla = rgba(0x0b0f15ff).into();
+                            for (i, on) in m.iter().enumerate() {
+                                if *on {
+                                    let (x, y) = ((i % w) as f32 * cell, (i / w) as f32 * cell);
+                                    let origin = point(b.origin.x + px(x), b.origin.y + px(y));
+                                    window.paint_quad(fill(Bounds::new(origin, size(px(cell + 0.5), px(cell + 0.5))), dark));
+                                }
+                            }
+                        },
+                    )
+                    .size_full(),
+                ),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(8.))
+                    .text_size(px(13.))
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Escanea el código con la cámara del celular."))
+                    .child(div().text_color(p.text_2).child("Se abre una página en el navegador; no hay que instalar nada."))
+                    .child(note_text(format!("O abre en el celular: {}", status.address.clone().unwrap_or_else(|| "(sin red local)".into())), &p))
+                    .child(note_text(clients, &p))
+                    .child(note_text("Si Windows pregunta si Smurf Vault puede usar la red, acepta en redes privadas: si no, el celular no se puede conectar.", &p))
+                    .child(
+                        h_flex().child(
+                            gpui_kit::component::button::Button::new("remote-new-code")
+                                .small()
+                                .label("Generar código nuevo")
+                                .tooltip("Los celulares conectados con el código anterior quedan afuera")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.vault.update(cx, |v, _| v.new_remote_code());
+                                    this.refresh_remote(cx);
+                                    window.push_notification(Notification::success("Código nuevo: escanea el QR otra vez"), cx);
+                                    cx.notify();
+                                })),
+                        ),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn apply_skin(&mut self, id: i64, window: &mut Window, cx: &mut Context<Self>) {
@@ -228,6 +330,7 @@ impl Render for ToolsPanel {
         let max_h = f32::from(window.viewport_size().height) - 190.;
         v_flex()
             .id("tools-scroll")
+            .track_scroll(&self.scroll)
             .max_h(px(max_h.max(240.)))
             .overflow_y_scroll()
             .pr(px(4.))
@@ -257,6 +360,14 @@ impl Render for ToolsPanel {
                 "Al pulsar Jugar, Smurf Vault inicia sesión por ti: entra usuario y contraseña directamente en el login de Riot. Si Riot pide verificación o captcha, se abre su ventana para que lo termines. Si lo apagas, se vuelve al modo anterior (restaurar la sesión guardada o copiar la contraseña).",
                 Some(switch("tool-autotype", c.auto_type, |c, v| c.auto_type = v)),
                 None,
+                &p,
+            ))
+            .child(tool(
+                Icon::empty().path(assets::icon("smartphone")),
+                "Control desde el celular",
+                "Acepta la partida, banea, elige campeón, skin, hechizos y runas desde el celular, sin pararte del sillón. El celular tiene que estar en el mismo WiFi que el PC.",
+                Some(switch("tool-remote", c.remote_enabled, |c, v| c.remote_enabled = v)),
+                c.remote_enabled.then(|| self.remote_body(cx)),
                 &p,
             ))
             .child(tool(

@@ -1,4 +1,5 @@
 //! Backend de Smurf Vault, sin interfaz. Reemplaza lo que hacía main.js en Electron.
+pub mod champselect;
 pub mod config;
 pub mod gamedata;
 pub mod import;
@@ -8,6 +9,7 @@ pub mod matches;
 pub mod model;
 pub mod paths;
 pub mod ranks;
+pub mod remote;
 pub mod riot;
 pub mod riotlogin;
 pub mod skins;
