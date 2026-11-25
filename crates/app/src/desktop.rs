@@ -261,3 +261,62 @@ impl Tray {
         out
     }
 }
+
+// ---------- actualizaciones ----------
+
+/// Actualización ya descargada y verificada, esperando instalarse.
+static PENDING_UPDATE: std::sync::Mutex<Option<sv_core::update::ReadyUpdate>> = std::sync::Mutex::new(None);
+
+pub fn set_pending_update(update: sv_core::update::ReadyUpdate) {
+    *PENDING_UPDATE.lock().unwrap() = Some(update);
+}
+
+pub fn pending_update_version() -> Option<String> {
+    PENDING_UPDATE.lock().unwrap().as_ref().map(|u| u.version.clone())
+}
+
+/// "Actualizar": instala ya, sin ventanas, y vuelve a abrir la app.
+pub fn install_update_now(cx: &mut gpui_kit::App) -> Result<(), String> {
+    let update = PENDING_UPDATE.lock().unwrap().take().ok_or("No hay una actualización lista")?;
+    sv_core::update::launch_installer(&update, true, true)?;
+    set_quitting();
+    cx.quit();
+    Ok(())
+}
+
+/// Al salir de la app: si hay una actualización lista, se instala sola (como electron-updater).
+pub fn install_pending_on_exit() {
+    if let Some(update) = PENDING_UPDATE.lock().unwrap().take() {
+        let _ = sv_core::update::launch_installer(&update, true, false);
+    }
+}
+
+// ---------- avisos de Windows ----------
+
+/// Id de la app en Windows: el mismo de los accesos directos que crea el instalador (y Electron).
+pub const APP_USER_MODEL_ID: &str = "com.tobaalhs.smurfvault";
+
+/// Declara el id de la app, para que los avisos salgan a nombre de Smurf Vault.
+pub fn set_app_id() {
+    #[cfg(windows)]
+    {
+        let id = wide(APP_USER_MODEL_ID);
+        // SAFETY: texto terminado en 0.
+        unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
+    }
+}
+
+/// Aviso de Windows (silencioso), como `new Notification(...)` en Electron.
+pub fn notify(title: &str, body: &str) {
+    #[cfg(windows)]
+    {
+        let (title, body) = (title.to_string(), body.to_string());
+        std::thread::spawn(move || {
+            let _ = tauri_winrt_notification::Toast::new(APP_USER_MODEL_ID)
+                .title(&title)
+                .text1(&body)
+                .sound(None)
+                .show();
+        });
+    }
+}

@@ -33,6 +33,7 @@ fn main() {
     if !multi && !desktop::single_instance(&paths.dir) {
         return;
     }
+    desktop::set_app_id();
     // Al iniciar Windows parte en la bandeja; sin bandeja no tendría cómo abrirse, así que se muestra.
     let start_hidden = std::env::args().any(|a| a == desktop::STARTUP_ARG) && sv_core::config::Config::load(&paths).close_to_tray;
     gpui_kit::application().with_assets(assets::Assets).run(move |cx| {
@@ -55,6 +56,10 @@ fn main() {
         };
         gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| app::AppView::new(window, cx)))
             .expect("no se pudo abrir la ventana");
-        cx.on_window_closed(|cx, _| cx.quit()).detach();
+        cx.on_window_closed(|cx, _| {
+            desktop::install_pending_on_exit();
+            cx.quit()
+        })
+        .detach();
     });
 }

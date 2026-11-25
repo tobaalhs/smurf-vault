@@ -41,6 +41,17 @@ impl AppView {
                 return true;
             }
             crate::desktop::hide_main_window();
+            // La primera vez se avisa dónde quedó, para que no parezca que se cerró.
+            close_vault.update(cx, |v, _| {
+                if !v.store.config.tray_hint_shown {
+                    crate::desktop::notify(
+                        "Smurf Vault sigue abierto",
+                        "Quedó en la bandeja del sistema. Clic derecho en el ícono para salir. Puedes cambiarlo en Ajustes.",
+                    );
+                    v.store.config.tray_hint_shown = true;
+                    let _ = v.store.save_config();
+                }
+            });
             false
         });
         crate::client::refresh_game_data(vault.clone(), cx);
@@ -60,6 +71,10 @@ impl AppView {
                     if now > seen {
                         seen = now;
                         window.push_notification(Notification::success("Partida aceptada ✓"), cx);
+                        // Si estás en otra ventana, también con un aviso de Windows.
+                        if !window.is_window_active() {
+                            crate::desktop::notify("Smurf Vault", "Partida aceptada ✓");
+                        }
                     }
                     // Estado de Drive: se redibuja el chip y un mismo error se avisa una sola vez.
                     let sync = sync_vault.read(cx).drive.sync_state();
@@ -79,6 +94,28 @@ impl AppView {
         .detach();
         let lock =cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
         let mut this = Self { vault, screen: Screen::Lock(lock.clone()), _screen_sub: None, tray: None };
+        // Actualizaciones desde GitHub (solo la versión instalada): al abrir y cada 6 horas.
+        if sv_core::update::is_installed() {
+            cx.spawn_in(window, async move |_, cx| loop {
+                let found = cx.background_executor().spawn(async { sv_core::update::check_and_download() }).await;
+                if let Ok(Some(update)) = found {
+                    let version = update.version.clone();
+                    let first = crate::desktop::pending_update_version().as_deref() != Some(version.as_str());
+                    crate::desktop::set_pending_update(update);
+                    let alive = cx.update(|window, cx| {
+                        if first {
+                            window.push_notification(Notification::success(format!("Hay una versión nueva (v{version}) lista para instalar")), cx);
+                        }
+                        window.refresh();
+                    });
+                    if alive.is_err() {
+                        break;
+                    }
+                }
+                cx.background_executor().timer(std::time::Duration::from_secs(6 * 60 * 60)).await;
+            })
+            .detach();
+        }
         this.sync_tray(cx);
         // La bandeja: clic en el ícono o en su menú.
         cx.spawn_in(window, async move |this, cx| loop {
@@ -96,6 +133,7 @@ impl AppView {
                         }
                         crate::desktop::TrayAction::Quit => {
                             crate::desktop::set_quitting();
+                            crate::desktop::install_pending_on_exit();
                             cx.quit();
                         }
                     }
@@ -167,6 +205,33 @@ impl AppView {
             }
             SyncState::Error(e) => ("Error de Drive", e, p.danger, p.danger, alpha(p.danger, 0.3)),
         };
+        // Actualización descargada: clic para reiniciar e instalarla (si no, se instala al cerrar).
+        let update_chip = crate::desktop::pending_update_version().map(|version| {
+            h_flex()
+                .id("update-chip")
+                .gap(px(6.))
+                .h(px(28.))
+                .px(px(11.))
+                .rounded_full()
+                .border_1()
+                .border_color(alpha(p.gold, 0.4))
+                .bg(alpha(p.gold, 0.12))
+                .text_size(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(p.gold_hi)
+                .cursor_pointer()
+                .hover(|s| s.bg(alpha(p.gold, 0.2)))
+                .child(Icon::new(IconName::ArrowDown).size(px(13.)))
+                .child(format!("Actualizar a v{version}"))
+                .tooltip(|window, cx| {
+                    Tooltip::new("Se descargó una versión nueva. Clic para reiniciar e instalarla (si no, se instala al cerrar la app).").build(window, cx)
+                })
+                .on_click(|_, window, cx| {
+                    if let Err(e) = crate::desktop::install_update_now(cx) {
+                        window.push_notification(Notification::error(e), cx);
+                    }
+                })
+        });
         let settings_vault = self.vault.clone();
         let sync = h_flex()
             .id("sync-chip")
@@ -221,6 +286,7 @@ impl AppView {
                 h_flex()
                     .gap(px(8.))
                     .pr(px(12.))
+                    .children(update_chip)
                     .children(auto_chip)
                     .children(offline_chip)
                     .child(sync)

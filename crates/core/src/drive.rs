@@ -15,11 +15,19 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// credentials.json de Google metido en el programa al compilar (ver build.rs); vacío si no estaba.
+const BUILTIN_CREDENTIALS: &str = include_str!(concat!(env!("OUT_DIR"), "/credentials.json"));
 const SCOPES: &str = "https://www.googleapis.com/auth/drive.appdata openid email";
 const VAULT_NAME: &str = "vault.dat";
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MISSING_SCOPE: &str =
     "Falta el permiso de Google Drive. Vuelve a vincular y marca la casilla \"Ver, crear y borrar sus propios datos de configuración en Google Drive\".";
+
+/// Error de una petición a Drive: si vale la pena reintentarla (conexión cortada, Google saturado).
+enum Retry {
+    Yes(String),
+    No(String),
+}
 
 /// Estado de la sincronización, para el chip de la barra de arriba.
 #[derive(Clone, Debug, PartialEq)]
@@ -109,10 +117,27 @@ impl Drive {
                     continue;
                 }
                 d.set_sync(SyncState::Syncing);
-                match d.upload(&env) {
-                    Ok(()) => d.set_sync(SyncState::Ok(crate::store::now_iso())),
-                    Err(e) => d.set_sync(SyncState::Error(e)),
+                let mut result = d.upload(&env);
+                // Si igual falló (sin internet un rato), se vuelve a intentar en un minuto, salvo que
+                // antes llegue una versión más nueva (que ya la reemplaza).
+                if result.is_err() {
+                    drop(d);
+                    match rx.recv_timeout(Duration::from_secs(60)) {
+                        Ok(newer) => {
+                            env = newer;
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                    let Some(again) = weak.upgrade() else { return };
+                    result = again.upload(&env);
+                    match result {
+                        Ok(()) => again.set_sync(SyncState::Ok(crate::store::now_iso())),
+                        Err(e) => again.set_sync(SyncState::Error(e)),
+                    }
+                    continue;
                 }
+                d.set_sync(SyncState::Ok(crate::store::now_iso()));
             }
         });
         drive
@@ -120,25 +145,26 @@ impl Drive {
 
     // ---------- credenciales / token ----------
 
-    /// credentials.json: el que cargó el usuario (carpeta de datos), el que viene junto al programa o,
-    /// en desarrollo, el de la raíz del repo (como app.getAppPath() en Electron).
+    /// credentials.json: el que cargó el usuario (carpeta de datos) o el que viene junto al programa.
+    /// Si no hay ninguno se usa el que va dentro del programa (BUILTIN_CREDENTIALS).
     fn credentials_path(&self) -> Option<std::path::PathBuf> {
         let mut candidates = vec![self.paths.credentials()];
         if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
             candidates.push(dir.join("credentials.json"));
         }
-        #[cfg(debug_assertions)]
-        candidates.push(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../credentials.json"));
         candidates.into_iter().find(|p| p.exists())
     }
 
     pub fn has_credentials(&self) -> bool {
-        self.credentials_path().is_some()
+        self.credentials_path().is_some() || !BUILTIN_CREDENTIALS.trim().is_empty()
     }
 
     fn client(&self) -> Result<(String, String), String> {
-        let path = self.credentials_path().ok_or("Falta credentials.json de Google")?;
-        let text = std::fs::read_to_string(path).map_err(|_| "Falta credentials.json de Google".to_string())?;
+        let text = match self.credentials_path() {
+            Some(path) => std::fs::read_to_string(path).map_err(|_| "Falta credentials.json de Google".to_string())?,
+            None if !BUILTIN_CREDENTIALS.trim().is_empty() => BUILTIN_CREDENTIALS.to_string(),
+            None => return Err("Falta credentials.json de Google".into()),
+        };
         let raw: Value = serde_json::from_str(&text).map_err(|_| "credentials.json no es un JSON válido".to_string())?;
         let c = if raw["installed"].is_object() { &raw["installed"] } else if raw["web"].is_object() { &raw["web"] } else { &raw };
         let id = c["client_id"].as_str().ok_or("credentials.json no tiene client_id")?;
@@ -338,7 +364,24 @@ impl Drive {
 
     /// Petición autenticada a Drive: devuelve el cuerpo como texto.
     fn api(&self, method: &str, url: &str, content_type: Option<&str>, body: Option<&[u8]>) -> Result<String, String> {
-        let token = self.access()?;
+        // Google corta las conexiones que quedan inactivas: la primera petición después de un rato
+        // puede fallar sin culpa de nadie (error 10054). Se reintenta, como hacía Chromium en Electron.
+        let mut attempt = 0;
+        loop {
+            match self.api_once(method, url, content_type, body) {
+                Err(Retry::Yes(e)) if attempt < 3 => {
+                    attempt += 1;
+                    std::thread::sleep(Duration::from_millis(400 * (1 << attempt)));
+                    let _ = e;
+                }
+                Err(Retry::Yes(e)) | Err(Retry::No(e)) => return Err(e),
+                Ok(text) => return Ok(text),
+            }
+        }
+    }
+
+    fn api_once(&self, method: &str, url: &str, content_type: Option<&str>, body: Option<&[u8]>) -> Result<String, Retry> {
+        let token = self.access().map_err(Retry::No)?;
         let mut req = self.agent.request(method, url).set("Authorization", &format!("Bearer {token}"));
         if let Some(ct) = content_type {
             req = req.set("Content-Type", ct);
@@ -348,22 +391,24 @@ impl Drive {
             None => req.call(),
         };
         match res {
-            Ok(r) => r.into_string().map_err(|e| e.to_string()),
+            Ok(r) => r.into_string().map_err(|_| Retry::Yes("Google Drive cortó la respuesta".into())),
             Err(ureq::Error::Status(status, r)) => {
                 let text = r.into_string().unwrap_or_default();
                 if status == 403 && text.contains("insufficient authentication scopes") {
                     // Vinculado sin el permiso de Drive: se desvincula para hacerlo bien.
                     self.save_token(None);
                     self.state.lock().unwrap().access = None;
-                    return Err(MISSING_SCOPE.into());
+                    return Err(Retry::No(MISSING_SCOPE.into()));
                 }
                 let msg = serde_json::from_str::<Value>(&text)
                     .ok()
                     .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
                     .unwrap_or_else(|| text.chars().take(200).collect());
-                Err(format!("Drive {status}: {msg}"))
+                let e = format!("Drive {status}: {msg}");
+                // Saturado o caído un momento: vale la pena reintentar.
+                if status == 429 || status >= 500 { Err(Retry::Yes(e)) } else { Err(Retry::No(e)) }
             }
-            Err(e) => Err(format!("No pude conectar con Google Drive: {e}")),
+            Err(_) => Err(Retry::Yes("No pude conectar con Google Drive (se cortó la conexión). Se vuelve a intentar sola.".into())),
         }
     }
 

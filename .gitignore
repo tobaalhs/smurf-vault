@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-rust/
 credentials.json
 *.dat
 LeagueAccounts-main/

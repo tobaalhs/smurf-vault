@@ -19,4 +19,5 @@ pub mod snapshot;
 pub mod store;
 pub mod switcher;
 pub mod tools;
+pub mod update;
 pub mod vault;
