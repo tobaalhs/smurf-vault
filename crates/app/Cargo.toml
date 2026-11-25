@@ -19,3 +19,4 @@ rust-embed = "8"
 futures = "0.3"
 ureq = "2"
 rand = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

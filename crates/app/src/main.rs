@@ -3,10 +3,13 @@
 
 mod app;
 mod assets;
+mod detail;
 mod http;
 mod lock;
+mod main_screen;
 mod state;
 mod theme;
+mod ui;
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;

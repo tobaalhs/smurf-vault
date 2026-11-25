@@ -6339,6 +6339,7 @@ name = "smurf-vault"
 version = "0.8.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
  "gpui-kit",
  "rand 0.8.8",

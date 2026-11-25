@@ -8,6 +8,9 @@ use std::sync::{Arc, OnceLock};
 #[folder = "assets"]
 #[include = "icons/*.svg"]
 #[include = "images/*.png"]
+#[include = "images/ranks/*.png"]
+#[include = "images/wings/*.webp"]
+#[include = "images/crests/*.webp"]
 struct Embedded;
 
 pub struct Assets;

@@ -49,6 +49,18 @@ impl LockScreen {
         };
         let subs = vec![cx.subscribe_in(&pw1, window, on_enter), cx.subscribe_in(&pw2, window, on_enter)];
         pw1.update(cx, |s, cx| s.focus(window, cx));
+        // Solo en desarrollo: SV_DEV_UNLOCK desbloquea sola una bóveda de prueba (ver examples/demo_vault).
+        #[cfg(debug_assertions)]
+        if let Ok(pw) = std::env::var("SV_DEV_UNLOCK") {
+            cx.spawn_in(window, async move |this, cx| {
+                this.update_in(cx, |this, window, cx| {
+                    this.pw1.update(cx, |s, cx| s.set_value(pw.clone(), window, cx));
+                    this.submit(window, cx);
+                })
+                .ok();
+            })
+            .detach();
+        }
         Self { vault, pw1, pw2, mode, error: None, busy: false, splash, _subs: subs }
     }
 

@@ -2,16 +2,18 @@
 //! bloqueo o principal.
 use crate::assets;
 use crate::lock::{LockEvent, LockScreen};
+use crate::main_screen::MainScreen;
 use crate::state::Vault;
 use crate::theme::palette;
-use gpui_kit::component::button::Button;
+use crate::ui::alpha;
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{h_flex, v_flex, Icon, TitleBar, WindowExt};
+use gpui_kit::component::{h_flex, v_flex, Icon, IconName, TitleBar, WindowExt};
 use gpui_kit::*;
 
 enum Screen {
     Lock(Entity<LockScreen>),
-    Main,
+    Main(Entity<MainScreen>),
 }
 
 pub struct AppView {
@@ -24,24 +26,28 @@ impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         window.set_window_title("Smurf Vault");
         let vault = cx.new(|_| Vault::new());
-        cx.observe(&vault, |_, _, cx| cx.notify()).detach();
-        let mut this = Self { vault, screen: Screen::Main, _screen_sub: None };
-        this.show_lock(window, cx);
+        let lock = cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
+        let mut this = Self { vault, screen: Screen::Lock(lock.clone()), _screen_sub: None };
+        this.watch_lock(&lock, window, cx);
         this
+    }
+
+    fn watch_lock(&mut self, lock: &Entity<LockScreen>, window: &mut Window, cx: &mut Context<Self>) {
+        self._screen_sub = Some(cx.subscribe_in(lock, window, |this, _, ev: &LockEvent, window, cx| match ev {
+            LockEvent::Unlocked => this.show_main(window, cx),
+        }));
     }
 
     fn show_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let lock = cx.new(|cx| LockScreen::new(self.vault.clone(), window, cx));
-        self._screen_sub = Some(cx.subscribe_in(&lock, window, |this, _, ev: &LockEvent, window, cx| match ev {
-            LockEvent::Unlocked => this.show_main(window, cx),
-        }));
+        self.watch_lock(&lock, window, cx);
         self.screen = Screen::Lock(lock);
         cx.notify();
     }
 
-    fn show_main(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn show_main(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._screen_sub = None;
-        self.screen = Screen::Main;
+        self.screen = Screen::Main(cx.new(|cx| MainScreen::new(self.vault.clone(), window, cx)));
         cx.notify();
     }
 
@@ -51,41 +57,56 @@ impl AppView {
         window.push_notification(Notification::info("Bóveda bloqueada"), cx);
     }
 
-    fn brand(&self, cx: &App) -> impl IntoElement {
+    fn top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        h_flex()
+        let brand = h_flex()
             .gap(px(10.))
             .child(img(assets::logo()).size(px(32.)).rounded(px(8.)))
-            .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"))
-    }
-
-    /// Pantalla principal provisoria: lista las cuentas de la bóveda abierta.
-    fn main_placeholder(&self, cx: &App) -> impl IntoElement {
-        let p = palette(cx);
-        let accounts = self.vault.read(cx).store.data().map(|d| d.accounts.clone()).unwrap_or_default();
-        v_flex()
-            .flex_1()
-            .p(px(24.))
-            .gap(px(8.))
+            .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"));
+        // Google Drive todavía no está portado: la bóveda queda solo en este PC.
+        let sync = h_flex()
+            .gap(px(6.))
+            .px(px(10.))
+            .py(px(5.))
+            .rounded_full()
+            .border_1()
+            .border_color(p.border)
+            .text_size(px(12.))
+            .text_color(p.muted)
+            .child(div().size(px(7.)).rounded_full().bg(p.muted))
+            .child("Solo local");
+        TitleBar::new()
+            .h(px(60.))
+            .bg(alpha(p.surface, 0.9))
+            .border_color(p.border)
+            .child(brand)
+            .child(div().flex_1())
             .child(
-                div()
-                    .text_size(px(13.))
-                    .text_color(p.muted)
-                    .child(format!("{} cuentas en la bóveda (la pantalla principal se está construyendo)", accounts.len())),
-            )
-            .children(accounts.into_iter().map(|a| {
-                let solo = a.ranks.solo.as_ref().map(|r| format!("{} {} · {} LP", r.tier, r.division, r.lp));
                 h_flex()
-                    .gap(px(12.))
-                    .px(px(14.))
-                    .py(px(10.))
-                    .rounded(px(10.))
-                    .bg(p.surface)
-                    .border_1()
-                    .border_color(p.border)
-                    .child(div().text_color(p.text).child(a.display_name()))
-                    .child(div().text_color(p.muted).text_size(px(12.)).child(solo.unwrap_or_else(|| "Sin rango".into())))
-            }))
+                    .gap(px(8.))
+                    .pr(px(12.))
+                    .child(sync)
+                    .child(div().w(px(1.)).h(px(22.)).bg(p.border_strong).mx(px(4.)))
+                    .child(
+                        Button::new("lock-vault")
+                            .icon(Icon::empty().path(assets::icon("lock-keyhole")))
+                            .label("Bloquear")
+                            .tooltip("Bloquear la bóveda: oculta tus cuentas hasta que pongas la contraseña maestra")
+                            .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx))),
+                    )
+                    .child(
+                        Button::new("add-account")
+                            .primary()
+                            .icon(Icon::new(IconName::Plus))
+                            .label("Nueva cuenta")
+                            .on_click(|_, window, cx| window.push_notification(Notification::info("Agregar cuentas llega en la próxima parte de esta fase."), cx)),
+                    )
+                    .child(
+                        Button::new("more")
+                            .icon(Icon::new(IconName::Ellipsis))
+                            .on_click(|_, window, cx| window.push_notification(Notification::info("El menú de opciones llega en la próxima parte de esta fase."), cx)),
+                    ),
+            )
     }
 }
 
@@ -98,33 +119,12 @@ impl Render for AppView {
                 .size_full()
                 .relative()
                 .child(lock.clone())
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .child(TitleBar::new().h(px(60.)).bg(transparent_black()).border_0()),
-                ),
-            Screen::Main => v_flex()
-                .size_full()
-                .bg(p.bg)
-                .child(
-                    TitleBar::new()
-                        .h(px(60.))
-                        .bg(Hsla { a: 0.9, ..p.surface })
-                        .border_color(p.border)
-                        .child(self.brand(cx))
-                        .child(div().flex_1())
-                        .child(
-                            Button::new("lock-vault")
-                                .outline()
-                                .icon(Icon::empty().path(assets::icon("lock")))
-                                .label("Bloquear")
-                                .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx))),
-                        ),
-                )
-                .child(self.main_placeholder(cx)),
+                .child(div().absolute().top_0().left_0().right_0().child(TitleBar::new().h(px(60.)).bg(transparent_black()).border_0()))
+                .into_any_element(),
+            Screen::Main(main) => {
+                let main = main.clone();
+                v_flex().size_full().bg(p.bg).child(self.top_bar(cx)).child(div().flex_1().min_h_0().child(main)).into_any_element()
+            }
         }
     }
 }

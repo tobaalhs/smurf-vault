@@ -4,5 +4,6 @@ pub mod local;
 pub mod matches;
 pub mod model;
 pub mod paths;
+pub mod ranks;
 pub mod store;
 pub mod vault;

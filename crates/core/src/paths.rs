@@ -9,6 +9,11 @@ pub struct Paths {
 
 impl Default for Paths {
     fn default() -> Self {
+        // Solo en desarrollo: SV_DATA_DIR apunta la app a otra carpeta (p. ej. una bóveda de prueba).
+        #[cfg(debug_assertions)]
+        if let Some(dir) = std::env::var_os("SV_DATA_DIR") {
+            return Self { dir: dir.into() };
+        }
         let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
         Self { dir: base.join("Smurf Vault") }
     }

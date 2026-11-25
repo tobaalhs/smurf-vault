@@ -108,6 +108,10 @@ impl Store {
         self.session.as_ref()
     }
 
+    pub fn session_mut(&mut self) -> Option<&mut Session> {
+        self.session.as_mut()
+    }
+
     pub fn data(&self) -> Option<&VaultData> {
         self.session.as_ref().map(|s| &s.data)
     }
