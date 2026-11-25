@@ -36,16 +36,30 @@ impl AppView {
         if let Err(e) = vault.update(cx, |v, _| v.sync_remote()) {
             window.push_notification(Notification::error(e), cx);
         }
+        let sync_vault = vault.clone();
         cx.spawn_in(window, async move |_, cx| {
             let mut seen = sv_core::tools::tools().accepted_count();
+            let mut last_sync: Option<sv_core::drive::SyncState> = None;
             loop {
                 cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
                 let now = sv_core::tools::tools().accepted_count();
-                if now > seen {
-                    seen = now;
-                    if cx.update(|window, cx| window.push_notification(Notification::success("Partida aceptada ✓"), cx)).is_err() {
-                        break;
+                let alive = cx.update(|window, cx| {
+                    if now > seen {
+                        seen = now;
+                        window.push_notification(Notification::success("Partida aceptada ✓"), cx);
                     }
+                    // Estado de Drive: se redibuja el chip y un mismo error se avisa una sola vez.
+                    let sync = sync_vault.read(cx).drive.sync_state();
+                    if last_sync.as_ref() != Some(&sync) {
+                        if let sv_core::drive::SyncState::Error(e) = &sync {
+                            window.push_notification(Notification::error(format!("Google Drive: {e}")), cx);
+                        }
+                        last_sync = Some(sync);
+                        window.refresh();
+                    }
+                });
+                if alive.is_err() {
+                    break;
                 }
             }
         })
@@ -87,18 +101,36 @@ impl AppView {
             .gap(px(10.))
             .child(img(assets::logo()).size(px(32.)).rounded(px(8.)))
             .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"));
-        // Google Drive todavía no está portado: la bóveda queda solo en este PC.
+        // Estado de Google Drive; clic para abrir Ajustes.
+        use sv_core::drive::SyncState;
+        let (text, tip, dot, fg, border) = match self.vault.read(cx).drive.sync_state() {
+            SyncState::Local => ("Solo local", "Tu bóveda solo está en este PC. Clic para vincular Google Drive.".to_string(), p.muted, p.muted, p.border),
+            SyncState::Syncing => ("Sincronizando…", "Subiendo cambios a Google Drive".to_string(), p.cyan, p.muted, p.border),
+            SyncState::Ok(at) => {
+                let when = chrono::DateTime::parse_from_rfc3339(&at)
+                    .map(|t| format!(" · {}", t.with_timezone(&chrono::Local).format("%H:%M:%S")))
+                    .unwrap_or_default();
+                ("Drive al día", format!("Guardado en Google Drive{when}"), p.ok, p.muted, p.border)
+            }
+            SyncState::Error(e) => ("Error de Drive", e, p.danger, p.danger, alpha(p.danger, 0.3)),
+        };
+        let settings_vault = self.vault.clone();
         let sync = h_flex()
-            .gap(px(6.))
-            .px(px(10.))
-            .py(px(5.))
+            .id("sync-chip")
+            .gap(px(8.))
+            .h(px(28.))
+            .px(px(11.))
             .rounded_full()
             .border_1()
-            .border_color(p.border)
+            .border_color(border)
             .text_size(px(12.))
-            .text_color(p.muted)
-            .child(div().size(px(7.)).rounded_full().bg(p.muted))
-            .child("Solo local");
+            .text_color(fg)
+            .cursor_pointer()
+            .hover(|s| s.bg(p.surface_2))
+            .child(div().size(px(7.)).rounded_full().bg(dot))
+            .child(text)
+            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .on_click(move |_, window, cx| crate::settings_dialog::open_settings(settings_vault.clone(), window, cx));
         // Herramientas encendidas: un chip cada una, que abre Herramientas.
         let config = &self.vault.read(cx).store.config;
         let tool_chip = |id: &'static str, icon: &'static str, label: &'static str, tip: &'static str, color: Hsla, vault: Entity<Vault>| {

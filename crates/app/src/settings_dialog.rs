@@ -156,6 +156,84 @@ impl SettingsPanel {
         .detach();
     }
 
+    /// Google Drive: estado, cargar credentials.json, vincular, subir ahora y desvincular.
+    fn google_block(&self, cx: &mut Context<Self>) -> Div {
+        let p = palette(cx);
+        let g = self.vault.read(cx).drive.status();
+        let text = if !g.has_credentials {
+            "Para sincronizar con Drive, primero carga el credentials.json de Google (esta versión no lo trae incluido).".to_string()
+        } else if g.linked {
+            format!(
+                "Tu bóveda cifrada se guarda en una carpeta oculta del Drive de {}. Cada cambio se sube solo.",
+                g.email.clone().unwrap_or_else(|| "tu cuenta de Google".into())
+            )
+        } else {
+            "Tu bóveda solo está en este PC. Vincula Google para tener un respaldo y usarla en otros PCs.".to_string()
+        };
+        let (badge_bg, badge_fg) = if g.linked { (alpha(p.ok, 0.14), p.ok) } else { (p.surface_3, p.text_2) };
+        let refresh = cx.entity().downgrade();
+        let done = move |_: &mut Window, cx: &mut App| {
+            refresh.update(cx, |_, cx| cx.notify()).ok();
+        };
+        let vault = self.vault.clone();
+        block(&p)
+            .child(
+                h_flex()
+                    .child(section(Icon::empty().path(crate::assets::icon("cloud")), "Google Drive", &p))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .px(px(8.))
+                            .py(px(2.))
+                            .rounded(px(6.))
+                            .bg(badge_bg)
+                            .text_size(px(11.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(badge_fg)
+                            .child(if g.linked { "Conectado" } else { "No conectado" }),
+                    ),
+            )
+            .child(div().text_size(px(12.5)).text_color(p.text_2).child(text))
+            .child(
+                h_flex()
+                    .gap(px(8.))
+                    .when(!g.has_credentials, |d| {
+                        let (vault, done) = (vault.clone(), done.clone());
+                        d.child(Button::new("google-creds").primary().icon(Icon::empty().path(crate::assets::icon("upload"))).label("Cargar credentials.json").on_click(
+                            move |_, window, cx| crate::google::import_credentials(vault.clone(), window, cx, done.clone()),
+                        ))
+                    })
+                    .when(g.has_credentials && !g.linked, |d| {
+                        let (vault, done) = (vault.clone(), done.clone());
+                        d.child(
+                            Button::new("google-link")
+                                .primary()
+                                .label("Vincular cuenta de Google")
+                                .on_click(move |_, window, cx| crate::google::link(vault.clone(), window, cx, done.clone())),
+                        )
+                    })
+                    .when(g.linked, |d| {
+                        let (sync, unlink) = (vault.clone(), vault.clone());
+                        let done = done.clone();
+                        d.child(Button::new("google-sync").label("Subir ahora").on_click(move |_, window, cx| {
+                            sync.update(cx, |v, cx| {
+                                let _ = v.store.persist();
+                                v.flush_upload();
+                                cx.notify();
+                            });
+                            window.push_notification(Notification::info("Subiendo tu bóveda a Google Drive…"), cx);
+                        }))
+                        .child(Button::new("google-unlink").ghost().text_color(p.danger).label("Desvincular").on_click(move |_, window, cx| {
+                            let drive = unlink.read(cx).drive.clone();
+                            cx.background_spawn(async move { drive.unlink() }).detach();
+                            window.push_notification(Notification::info("Google desvinculado. El archivo en Drive no se borra."), cx);
+                            unlink.update(cx, |_, cx| cx.notify());
+                            done(window, cx);
+                        }))
+                    }),
+            )
+    }
+
     /// Guarda la API key de Riot (cifrada en la bóveda).
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let key = self.riot_key.read(cx).value().trim().to_string();
@@ -210,11 +288,7 @@ impl Render for SettingsPanel {
             .overflow_y_scroll()
             .pr(px(4.))
             .gap(px(12.))
-            .child(
-                block(&p)
-                    .child(section(Icon::empty().path(crate::assets::icon("cloud")), "Google Drive", &p))
-                    .child(hint("La sincronización con Google Drive todavía no está en la versión Rust: llega en una próxima fase. Tu bóveda queda guardada en este PC.", &p)),
-            )
+            .child(self.google_block(cx))
             .child(
                 block(&p)
                     .child(section(Icon::empty().path(crate::assets::icon("lock-keyhole")), "Contraseña maestra", &p))

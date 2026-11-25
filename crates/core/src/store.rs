@@ -81,12 +81,14 @@ pub struct Store {
     session: Option<Session>,
     /// Huella de la última sesión de Riot guardada por cuenta, para no reescribir lo mismo.
     saved_hash: std::collections::HashMap<String, u64>,
+    /// Última bóveda guardada que falta subir a Google Drive.
+    pending_upload: Option<Envelope>,
 }
 
 impl Store {
     pub fn new(paths: Paths) -> Self {
         let config = Config::load(&paths);
-        Self { paths, config, session: None, saved_hash: Default::default() }
+        Self { paths, config, session: None, saved_hash: Default::default(), pending_upload: None }
     }
 
     pub fn save_config(&self) -> Result<(), String> {
@@ -185,7 +187,13 @@ impl Store {
         let value = serde_json::to_value(&s.data).map_err(|e| e.to_string())?;
         let env = vault::encrypt_with_key(&s.key, &s.salt, &value)?;
         self.write_local(&env)?;
+        self.pending_upload = Some(env.clone());
         Ok(env)
+    }
+
+    /// La última bóveda guardada que falta subir a Drive (se entrega una sola vez).
+    pub fn take_pending_upload(&mut self) -> Option<Envelope> {
+        self.pending_upload.take()
     }
 
     /// Escribe un sobre como bóveda local (también uno bajado de Drive).

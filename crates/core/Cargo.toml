@@ -26,3 +26,8 @@ tungstenite = { version = "0.24", default-features = false, features = ["handsha
 # Control desde el celular: el QR con la dirección y las IPs de la red local.
 qrcode = { version = "0.14", default-features = false }
 if-addrs = "0.13"
+# Google Drive: PKCE del login y el token cifrado como safeStorage de Electron (DPAPI de Windows).
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }

@@ -482,6 +482,7 @@ pub fn refresh_riot(vault: Entity<Vault>, ids: Option<Vec<String>>, window: &mut
                     v.riot_busy = false;
                     v.riot_progress = None;
                     let saved = v.store.is_unlocked().then(|| v.store.persist().map(|_| ()));
+                    v.flush_upload();
                     cx.notify();
                     saved
                 });

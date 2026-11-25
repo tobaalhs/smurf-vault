@@ -22,13 +22,16 @@ pub struct Vault {
     pub open_login_requested: bool,
     /// Servidor del control desde el celular, mientras está encendido.
     pub remote: Option<sv_core::remote::RemoteServer>,
+    /// Google Drive: vinculación y subidas en segundo plano.
+    pub drive: std::sync::Arc<sv_core::drive::Drive>,
 }
 
 impl Vault {
     pub fn new() -> Self {
         let store = Store::new(Default::default());
         let game = GameData::load_cache(&store.paths);
-        Self { store, game, riot_busy: false, riot_progress: None, open_login_requested: false, remote: None }
+        let drive = sv_core::drive::Drive::new(store.paths.clone());
+        Self { store, game, riot_busy: false, riot_progress: None, open_login_requested: false, remote: None, drive }
     }
 
     /// Enciende o apaga el control desde el celular según la configuración. El código se guarda al
@@ -59,9 +62,17 @@ impl Vault {
         }
     }
 
+    /// Sube a Google Drive la última versión guardada, si hay una pendiente.
+    pub fn flush_upload(&mut self) {
+        if let Some(env) = self.store.take_pending_upload() {
+            self.drive.queue_upload(env);
+        }
+    }
+
     /// Cambia algo de la bóveda y avisa a las vistas para que se redibujen.
     pub fn change<R>(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Store) -> R) -> R {
         let out = f(&mut self.store);
+        self.flush_upload();
         cx.notify();
         out
     }

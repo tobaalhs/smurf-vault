@@ -6,6 +6,7 @@ mod assets;
 mod client;
 mod detail;
 mod dialogs;
+mod google;
 mod http;
 mod lock;
 mod main_screen;

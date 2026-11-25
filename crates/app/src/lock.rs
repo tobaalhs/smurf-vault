@@ -5,8 +5,7 @@ use crate::state::{splash_url, Vault};
 use crate::theme::palette;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{v_flex, Icon, Sizable, WindowExt};
+use gpui_kit::component::{v_flex, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use rand::seq::SliceRandom;
@@ -30,6 +29,9 @@ pub struct LockScreen {
     error: Option<SharedString>,
     busy: bool,
     splash: Option<SharedString>,
+    /// Bóveda encontrada en Google Drive cuando no hay una en este PC.
+    from_drive: bool,
+    searching_drive: bool,
     _subs: Vec<Subscription>,
 }
 
@@ -62,7 +64,38 @@ impl LockScreen {
             })
             .detach();
         }
-        Self { vault, pw1, pw2, mode, error: None, busy: false, splash, _subs: subs }
+        let mut this = Self { vault, pw1, pw2, mode, error: None, busy: false, splash, from_drive: false, searching_drive: false, _subs: subs };
+        this.look_in_drive(window, cx);
+        this
+    }
+
+    /// Sin bóveda en este PC pero con Google vinculado: se busca en Drive para desbloquearla.
+    fn look_in_drive(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let v = self.vault.read(cx);
+        if v.store.has_local() || !v.drive.status().linked {
+            return;
+        }
+        let drive = v.drive.clone();
+        self.searching_drive = true;
+        cx.notify();
+        let work = cx.background_spawn(async move { drive.download() });
+        cx.spawn_in(window, async move |this, cx| {
+            let res = work.await;
+            this.update(cx, |this, cx| {
+                this.searching_drive = false;
+                match res {
+                    Ok(Some(_)) => {
+                        this.mode = Mode::Unlock;
+                        this.from_drive = true;
+                    }
+                    Ok(None) => {}
+                    Err(e) => this.error = Some(e.into()),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -76,37 +109,66 @@ impl LockScreen {
             cx.notify();
             return;
         }
-        let envelope = match self.mode {
-            Mode::Unlock => match self.vault.read(cx).store.read_local() {
-                Some(env) => Some(env),
-                None => {
-                    self.error = Some("No hay bóveda para desbloquear".into());
-                    cx.notify();
-                    return;
-                }
-            },
-            Mode::Create => None,
-        };
+        let local = self.vault.read(cx).store.read_local();
+        if self.mode == Mode::Unlock && local.is_none() && !self.from_drive {
+            self.error = Some("No hay bóveda para desbloquear".into());
+            cx.notify();
+            return;
+        }
+        let drive = self.vault.read(cx).drive.clone();
+        let linked = drive.status().linked;
         self.busy = true;
         cx.notify();
-        // scrypt tarda: se calcula fuera del hilo de la interfaz.
+        // scrypt tarda y Drive es red: todo fuera del hilo de la interfaz. Al desbloquear se usa la
+        // versión más nueva entre la de este PC y la de Drive.
+        let create = self.mode == Mode::Create;
         let work = cx.background_spawn(async move {
-            match envelope {
-                Some(env) => Opened::from_envelope(&env, &pw),
-                None => Opened::new_vault(&pw),
+            let (remote, remote_error) = if linked {
+                match drive.download() {
+                    Ok(r) => (r, None),
+                    Err(e) => (None, Some(e)),
+                }
+            } else {
+                (None, None)
+            };
+            if create {
+                if remote.is_some() {
+                    return Err("Ya tienes una bóveda en Drive: desbloquéala en vez de crear otra".to_string());
+                }
+                return Opened::new_vault(&pw).map(|o| (o, None, local, remote_error));
             }
+            let (env, from_remote) = sv_core::drive::newest(local.clone(), remote.clone()).ok_or_else(|| {
+                remote_error.clone().unwrap_or_else(|| "No hay bóveda para desbloquear".to_string())
+            })?;
+            let opened = Opened::from_envelope(&env, &pw)?;
+            Ok((opened, Some((env, from_remote, remote)), local, remote_error))
         });
         let mode = self.mode;
         cx.spawn_in(window, async move |this, cx| {
             let opened = work.await;
             this.update_in(cx, |this, window, cx| {
                 this.busy = false;
-                let result = opened.and_then(|opened| {
+                let result = opened.and_then(|(opened, chosen, local, remote_error)| {
                     this.vault.update(cx, |v, cx| {
-                        v.change(cx, |store| match mode {
+                        let res = v.change(cx, |store| match mode {
                             Mode::Create => store.finish_create(opened).map(|_| ()),
                             Mode::Unlock => store.finish_unlock(opened).map(|_| ()),
-                        })
+                        });
+                        if res.is_ok() {
+                            if let Some((env, from_remote, remote)) = chosen {
+                                let local_at = local.as_ref().map(|l| l.updated_at.clone());
+                                if from_remote && local_at.as_ref() != Some(&env.updated_at) {
+                                    // Drive tenía una versión más nueva: queda también en este PC.
+                                    let _ = v.store.write_local(&env);
+                                } else if !from_remote && remote.as_ref().map(|r| &r.updated_at) != local_at.as_ref() {
+                                    v.drive.queue_upload(env);
+                                }
+                            }
+                            if let Some(e) = remote_error {
+                                v.drive.set_sync(sv_core::drive::SyncState::Error(e));
+                            }
+                        }
+                        res
                     })
                 });
                 match result {
@@ -131,11 +193,16 @@ impl Render for LockScreen {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let create = self.mode == Mode::Create;
-        let hint = if create {
+        let hint = if self.searching_drive {
+            "Buscando tu bóveda en Google Drive…"
+        } else if create {
             "Crea tu contraseña maestra. No se puede recuperar: si la olvidas, pierdes la bóveda."
+        } else if self.from_drive {
+            "Encontramos tu bóveda en Google Drive. Ingresa tu contraseña maestra."
         } else {
             "Bóveda bloqueada. Ingresa tu contraseña maestra."
         };
+        let google = self.vault.read(cx).drive.status();
         let lock_icon = || Icon::empty().path(assets::icon("lock")).text_color(p.muted);
 
         let card = v_flex()
@@ -175,20 +242,27 @@ impl Render for LockScreen {
                     .items_center()
                     .border_t_1()
                     .border_color(p.border)
-                    .child(div().text_size(px(12.)).text_color(p.muted).child("¿Ya usabas Smurf Vault en otro PC?"))
-                    .child(
-                        Button::new("lock-google")
-                            .ghost()
-                            .small()
-                            .icon(Icon::empty().path(assets::icon("cloud")))
-                            .label("Vincular Google Drive")
-                            .on_click(|_, window, cx| {
-                                window.push_notification(
-                                    Notification::info("Google Drive todavía no está en la versión Rust: llega en una próxima fase."),
-                                    cx,
-                                )
-                            }),
-                    ),
+                    .child(div().text_size(px(12.)).text_color(p.muted).child(if google.linked {
+                        format!("Sincronizada con {}", google.email.clone().unwrap_or_else(|| "Google Drive".into()))
+                    } else {
+                        "¿Ya usabas Smurf Vault en otro PC?".to_string()
+                    }))
+                    .when(!google.linked, |d| {
+                        d.child(
+                            Button::new("lock-google")
+                                .ghost()
+                                .small()
+                                .icon(Icon::empty().path(assets::icon("cloud")))
+                                .label("Vincular Google Drive")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    let screen = cx.entity().downgrade();
+                                    crate::google::link(this.vault.clone(), window, cx, move |window, cx| {
+                                        // Ya vinculado: si hay una bóveda en Drive, se ofrece desbloquearla.
+                                        screen.update(cx, |this, cx| this.look_in_drive(window, cx)).ok();
+                                    });
+                                })),
+                        )
+                    }),
             );
 
         div()
