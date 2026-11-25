@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('api', {
   deleteAccount: (id) => call('accounts:delete', id),
   setFavorite: (id, favorite) => call('accounts:favorite', id, favorite),
   gameData: () => call('game:data'),
+  listSkins: () => call('skins:list'),
+  setBackground: (id) => call('profile:setBackground', id),
   saveSettings: (s) => call('settings:save', s),
   copy: (id, field) => call('clipboard:copy', id, field),
   googleLink: () => call('google:link'),

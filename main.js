@@ -16,6 +16,7 @@ const riotlogin = require('./src/riotlogin');
 const autotype = require('./src/autotype');
 const { LocalHistory, LpLog } = require('./src/history');
 const { GameData } = require('./src/gamedata');
+const { Skins } = require('./src/skins');
 const { autoUpdater } = require('electron-updater');
 
 const userData = app.getPath('userData');
@@ -47,6 +48,7 @@ let config = {
 const offlineMode = new OfflineMode();
 let tray = null;
 let gameData = null;
+let skins = null;
 let remote = null;
 let quitting = false; // true cuando se sale de verdad (menú de la bandeja, actualización)
 
@@ -817,6 +819,24 @@ function registerIpc() {
 
   handle('game:data', () => gameData.get());
 
+  // Catálogo de skins para el cambiador de fondo: cada skin con su nombre y el del campeón (para buscar).
+  handle('skins:list', async () => {
+    const [cat, gd] = await Promise.all([skins.get(), gameData.get().catch(() => null)]);
+    const names = gd?.champions || {};
+    return (cat?.skins || []).map((s) => ({ ...s, champName: names[s.champ] || '' }));
+  });
+
+  // Cambia el fondo del perfil de LoL a cualquier skin (la tengas o no). Igual que League Profile Tool:
+  // POST al cliente local con { key: 'backgroundSkinId', value: <id de la skin> }. Requiere el LoL abierto.
+  handle('profile:setBackground', async (skinId) => {
+    const id = Number(skinId);
+    if (!Number.isInteger(id) || id <= 0) throw new Error('Skin inválida');
+    const res = await lcu.request('POST', '/lol-summoner/v1/current-summoner/summoner-profile', {}, { key: 'backgroundSkinId', value: id });
+    if (!res) throw new Error('Abre el cliente de LoL para cambiar el fondo');
+    if (res.status >= 400) throw new Error(`El cliente rechazó el cambio (${res.status})`);
+    return true;
+  });
+
   handle('accounts:delete', (id) => {
     requireSession();
     session.data.accounts = session.data.accounts.filter((a) => a.id !== id);
@@ -1009,6 +1029,7 @@ app.whenReady().then(() => {
   app.setAppUserModelId('Smurf Vault'); // necesario para las notificaciones en Windows
   loadConfig();
   gameData = new GameData(path.join(userData, 'gamedata.json'));
+  skins = new Skins(path.join(userData, 'skins.json'));
   remote = new RemoteServer({ champSelect: new ChampSelect(), gameData, appDir: __dirname });
   syncRemote().catch(() => {});
   autoAccept = new AutoAccept({

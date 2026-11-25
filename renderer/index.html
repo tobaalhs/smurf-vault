@@ -363,6 +363,21 @@
           </div>
         </div>
       </section>
+
+      <section class="tool">
+        <div class="tool-head">
+          <div class="tool-icon"><i data-icon="palette"></i></div>
+          <div class="tool-text">
+            <h3>Fondo de perfil</h3>
+            <p class="hint">Cambia el fondo de tu perfil de LoL a cualquier skin, la tengas o no. Necesita el cliente de LoL abierto. Busca una skin o campeón y haz clic para aplicarla.</p>
+          </div>
+        </div>
+        <div class="tool-body">
+          <input type="search" id="skinSearch" class="skin-search" placeholder="Busca una skin o campeón…" autocomplete="off" />
+          <div class="skin-grid" id="skinGrid"></div>
+          <p class="hint small-note" id="skinNote">Cargando skins…</p>
+        </div>
+      </section>
     </form>
   </dialog>
 
@@ -458,6 +473,8 @@
     </form>
   </dialog>
 
+  <!-- Fondo difuminado de los diálogos: empieza bajo la barra de arriba para que siga visible y usable -->
+  <div id="dlgBackdrop"></div>
   <div id="toasts"></div>
   <div id="tooltip" class="tooltip hidden"></div>
   <!-- Botones de ventana propios (la ventana no usa la barra de título de Windows).

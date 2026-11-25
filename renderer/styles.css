@@ -152,10 +152,9 @@ label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-w
   -webkit-app-region: drag; padding-right: 156px;
 }
 .topbar button, .topbar input, .topbar select, .topbar .menu { -webkit-app-region: no-drag; }
-/* Los diálogos quedan encima de la barra (que es zona de arrastre de la ventana): sin esto, la parte
-   del diálogo que cae sobre la barra no recibe clics (por ejemplo, la X de Ajustes). */
+/* Los diálogos nunca son zona de arrastre. Quedan bajo la barra (ver "Diálogos bajo la barra"), así que
+   la barra se puede seguir arrastrando y usando con un diálogo abierto. */
 dialog { -webkit-app-region: no-drag; }
-body:has(dialog[open]) .topbar, body:has(dialog[open]) .lock-drag { -webkit-app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
 .brand img { width: 32px; height: 32px; border-radius: 8px; }
 .divider { width: 1px; height: 22px; background: var(--border-strong); margin: 0 4px; }
@@ -265,7 +264,14 @@ dialog::backdrop { background: color-mix(in srgb, var(--bg) 72%, transparent); b
 dialog form { display: flex; flex-direction: column; gap: 14px; }
 dialog h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
 .dlg-head .btn:focus-visible { outline: none; }
-.dlg-head { display: flex; align-items: center; justify-content: space-between; margin: -4px -8px 0 0; }
+/* El título y la X quedan fijos arriba al hacer scroll dentro del diálogo. Los márgenes negativos
+   cubren el padding del diálogo (20px 22px) para que el contenido no se vea pasar por encima. */
+.dlg-head {
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: -20px; z-index: 2;
+  margin: -20px -22px 0; padding: 16px 14px 10px 22px;
+  background: var(--surface);
+}
 .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .row.center { align-items: center; }
 .row label.narrow { flex: 0 0 110px; }
@@ -851,3 +857,75 @@ img.broken { visibility: hidden; }
 .stage .m-level, .stage .mplace.legend span, .stage .mm.tft, .stage .lp-tip { text-shadow: none; }
 /* el texto del gráfico es SVG: en vez de sombra, un contorno oscuro detrás de las letras */
 .lp-chart .tick, .lp-chart .end-label { paint-order: stroke; stroke: color-mix(in srgb, var(--bg) 85%, transparent); stroke-width: 3px; stroke-linejoin: round; }
+
+/* ---------- Fondo de perfil (buscador de skins) ---------- */
+.skin-search {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.skin-search:focus { border-color: var(--cyan); }
+.skin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 2px;
+}
+.skin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--text-2);
+  transition: border-color 0.12s, transform 0.12s;
+}
+.skin-card:hover { border-color: var(--gold); transform: translateY(-1px); }
+.skin-card img, .skin-card .skin-noimg {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  background: var(--surface-3);
+}
+.skin-card .skin-name {
+  font-size: 11px;
+  line-height: 1.2;
+  padding: 2px 5px 6px;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.skin-card.applying { opacity: 0.45; pointer-events: none; }
+
+/* ---------- Diálogos bajo la barra de arriba ---------- */
+/* Los diálogos se abren con show() (ver renderer.js) para no tapar la barra: quedan centrados en el
+   espacio bajo ella (60 px), con su propio fondo difuminado, y si no caben hacen scroll por dentro. */
+dialog[open] {
+  position: fixed; inset: 60px 0 0 0; margin: auto;
+  height: fit-content; max-height: calc(100vh - 60px - 32px); overflow: auto;
+}
+#dlgBackdrop {
+  display: none; position: fixed; inset: 60px 0 0 0; z-index: 90;
+  background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(3px);
+}
+body:has(dialog[open]) #dlgBackdrop { display: block; }
+/* La barra (con su menú ⋯) y los botones de ventana quedan sobre los diálogos; los toasts y tooltips, encima de todo. */
+.topbar { position: relative; z-index: 1000; }
+.winctl { z-index: 1001; }
+#toasts { z-index: 10000; }
+.tooltip { z-index: 10001; }

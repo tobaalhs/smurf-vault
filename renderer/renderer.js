@@ -30,6 +30,23 @@ $('#winMax').addEventListener('click', () => window.api.winToggleMaximize());
 $('#winClose').addEventListener('click', () => window.api.winClose());
 window.api.onWinState((s) => setMaximized(s.maximized));
 window.api.winIsMaximized().then(setMaximized).catch(() => {});
+
+// Diálogos sin la "top layer" nativa de showModal(), que tapa todo (la barra de arriba y los toasts).
+// Se abren con show() y un fondo propio (#dlgBackdrop) que empieza bajo la barra, así la barra sigue
+// visible y usable con cualquier diálogo abierto. Cada diálogo nuevo queda encima del anterior.
+let dialogZ = 100;
+HTMLDialogElement.prototype.showModal = function () {
+  this.style.zIndex = String(++dialogZ);
+  if (!this.open) this.show();
+};
+// Escape cierra el diálogo de más arriba, como hacía showModal().
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('dialog[open]')];
+  if (!open.length) return;
+  e.preventDefault();
+  open.reduce((a, b) => (Number(b.style.zIndex) > Number(a.style.zIndex) ? b : a)).close();
+});
 // Doble clic en la barra de arriba maximiza, como en una ventana normal.
 document.addEventListener('dblclick', (e) => {
   if (e.target.closest('.topbar, .lock-drag') && !e.target.closest('button, input, select, .menu')) window.api.winToggleMaximize();
@@ -908,7 +925,74 @@ async function openTools() {
   clearInterval(remoteTimer);
   remoteTimer = setInterval(loadRemoteStatus, 3000);
   $('#toolsDialog').showModal();
+  initSkinPicker();
 }
+
+// ---------- cambiar el fondo de perfil (cualquier skin) ----------
+
+let skinCatalog = null; // [{ id, name, champ, tile, q }]
+let skinSearchTimer = null;
+
+// minúsculas y sin tildes, para buscar sin importar acentos.
+function normText(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+async function initSkinPicker() {
+  const grid = $('#skinGrid');
+  if (!grid || skinCatalog) {
+    if (skinCatalog) renderSkins($('#skinSearch')?.value || '');
+    return;
+  }
+  try {
+    const list = await window.api.listSkins();
+    skinCatalog = list.map((s) => ({ ...s, q: normText(`${s.name} ${s.champName}`) }));
+    renderSkins('');
+  } catch {
+    $('#skinNote').textContent = 'No pude cargar las skins (revisa tu internet).';
+  }
+}
+
+function renderSkins(term) {
+  const grid = $('#skinGrid');
+  if (!grid || !skinCatalog) return;
+  const q = normText(term.trim());
+  let items = q ? skinCatalog.filter((s) => s.q.includes(q)) : skinCatalog;
+  const total = items.length;
+  const capped = items.slice(0, 120); // no dibujamos miles de tarjetas de una
+  grid.innerHTML = capped
+    .map(
+      (s) => `<button type="button" class="skin-card" data-skin="${s.id}" title="${esc(s.name)}">
+        ${s.tile ? `<img loading="lazy" src="${s.tile}" alt="" />` : '<span class="skin-noimg"></span>'}
+        <span class="skin-name">${esc(s.name)}</span>
+      </button>`
+    )
+    .join('');
+  $('#skinNote').textContent = q
+    ? `${total} resultado${total === 1 ? '' : 's'}${total > 120 ? ' (se muestran 120)' : ''}`
+    : `${total} skins — escribe para buscar`;
+}
+
+$('#skinSearch')?.addEventListener('input', (e) => {
+  clearTimeout(skinSearchTimer);
+  const term = e.target.value;
+  skinSearchTimer = setTimeout(() => renderSkins(term), 150);
+});
+
+$('#skinGrid')?.addEventListener('click', async (e) => {
+  const card = e.target.closest('.skin-card');
+  if (!card || card.classList.contains('applying')) return;
+  const id = Number(card.dataset.skin);
+  card.classList.add('applying');
+  try {
+    await window.api.setBackground(id);
+    toast('Fondo cambiado ✓ — reabre tu perfil en el cliente para verlo', 'ok');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    card.classList.remove('applying');
+  }
+});
 
 async function setTools(patch) {
   await run(null, async () => {
