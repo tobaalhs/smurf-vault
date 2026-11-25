@@ -21,3 +21,5 @@ regex = "1"
 # certificado autofirmado, solo para 127.0.0.1).
 ureq = { version = "2", features = ["json", "native-tls"] }
 native-tls = "0.2"
+# Inicio de sesión por inyección: WebSocket (solo ws:// a 127.0.0.1) con el render del Riot Client.
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }

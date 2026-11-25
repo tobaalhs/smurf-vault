@@ -9,6 +9,8 @@ pub mod model;
 pub mod paths;
 pub mod ranks;
 pub mod riot;
+pub mod riotlogin;
 pub mod snapshot;
 pub mod store;
+pub mod switcher;
 pub mod vault;
