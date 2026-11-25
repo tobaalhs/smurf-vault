@@ -10,6 +10,7 @@ use crate::dialogs;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex, Icon, IconName, TitleBar, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -30,6 +31,22 @@ impl AppView {
         window.set_window_title("Smurf Vault");
         let vault = cx.new(|_| Vault::new());
         crate::client::refresh_game_data(vault.clone(), cx);
+        // Autoaceptar y aparecer desconectado corren solos (también con la bóveda bloqueada).
+        crate::tools_dialog::apply_config(&vault, cx);
+        cx.spawn_in(window, async move |_, cx| {
+            let mut seen = sv_core::tools::tools().accepted_count();
+            loop {
+                cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                let now = sv_core::tools::tools().accepted_count();
+                if now > seen {
+                    seen = now;
+                    if cx.update(|window, cx| window.push_notification(Notification::success("Partida aceptada ✓"), cx)).is_err() {
+                        break;
+                    }
+                }
+            }
+        })
+        .detach();
         let lock =cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
         let mut this = Self { vault, screen: Screen::Lock(lock.clone()), _screen_sub: None };
         this.watch_lock(&lock, window, cx);
@@ -79,6 +96,33 @@ impl AppView {
             .text_color(p.muted)
             .child(div().size(px(7.)).rounded_full().bg(p.muted))
             .child("Solo local");
+        // Herramientas encendidas: un chip cada una, que abre Herramientas.
+        let config = &self.vault.read(cx).store.config;
+        let tool_chip = |id: &'static str, icon: &'static str, label: &'static str, tip: &'static str, color: Hsla, vault: Entity<Vault>| {
+            h_flex()
+                .id(id)
+                .gap(px(6.))
+                .h(px(28.))
+                .px(px(11.))
+                .rounded_full()
+                .border_1()
+                .border_color(alpha(color, 0.35))
+                .bg(alpha(color, 0.1))
+                .text_size(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color)
+                .cursor_pointer()
+                .child(Icon::empty().path(assets::icon(icon)).size(px(14.)))
+                .child(label)
+                .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
+                .on_click(move |_, window, cx| crate::tools_dialog::open_tools(vault.clone(), window, cx))
+        };
+        let auto_chip = config.auto_accept.then(|| {
+            tool_chip("auto-chip", "zap", "Autoaceptar", "Autoaceptar partidas activado · clic para configurar", p.cyan, self.vault.clone())
+        });
+        let offline_chip = config.appear_offline.then(|| {
+            tool_chip("offline-chip", "ghost", "Desconectado", "Apareces desconectado en el chat del LoL · clic para configurar", p.text_2, self.vault.clone())
+        });
         TitleBar::new()
             .h(px(60.))
             .bg(alpha(p.surface, 0.9))
@@ -89,6 +133,8 @@ impl AppView {
                 h_flex()
                     .gap(px(8.))
                     .pr(px(12.))
+                    .children(auto_chip)
+                    .children(offline_chip)
                     .child(sync)
                     .child(div().w(px(1.)).h(px(22.)).bg(p.border_strong).mx(px(4.)))
                     .child(
@@ -115,13 +161,9 @@ impl AppView {
     fn menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let vault = self.vault.clone();
         let view = cx.entity().downgrade();
-        let soon = |what: &'static str| {
-            move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                window.push_notification(Notification::info(format!("{what} llega en una próxima fase de la migración.")), cx)
-            }
-        };
         Button::new("more").icon(Icon::new(IconName::Ellipsis)).dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            let (manual, import, riot, view) = (vault.clone(), vault.clone(), vault.clone(), view.clone());
+            let (manual, import, riot, tools, settings, view) =
+                (vault.clone(), vault.clone(), vault.clone(), vault.clone(), vault.clone(), view.clone());
             menu.item(
                 PopupMenuItem::new("Agregar cuenta a mano")
                     .icon(Icon::empty().path(assets::icon("pencil")))
@@ -130,13 +172,17 @@ impl AppView {
             .item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(move |_, window, cx| {
                 crate::client::refresh_riot(riot.clone(), None, window, cx)
             }))
-            .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(soon("Herramientas")))
+            .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(move |_, window, cx| {
+                crate::tools_dialog::open_tools(tools.clone(), window, cx)
+            }))
             .item(
                 PopupMenuItem::new("Importar desde txt")
                     .icon(Icon::empty().path(assets::icon("upload")))
                     .on_click(move |_, window, cx| dialogs::open_import(import.clone(), window, cx)),
             )
-            .item(PopupMenuItem::new("Ajustes").icon(Icon::new(IconName::Settings)).on_click(soon("Ajustes")))
+            .item(PopupMenuItem::new("Ajustes").icon(Icon::new(IconName::Settings)).on_click(move |_, window, cx| {
+                crate::settings_dialog::open_settings(settings.clone(), window, cx)
+            }))
             .separator()
             .item(PopupMenuItem::new("Bloquear bóveda  (Ctrl L)").icon(Icon::empty().path(assets::icon("lock"))).on_click(move |_, window, cx| {
                 view.update(cx, |this, cx| this.lock(window, cx)).ok();

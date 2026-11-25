@@ -125,11 +125,11 @@ fn stat(value: impl Into<SharedString>, label: impl Into<SharedString>, color: H
 }
 
 /// Selector segmentado (LoL / TFT, Solo/Dúo / Flex / TFT).
-fn segmented(p: &Palette) -> Div {
+pub(crate) fn segmented(p: &Palette) -> Div {
     h_flex().gap(px(2.)).p(px(2.)).mb(px(14.)).rounded(px(9.)).bg(alpha(p.surface, 0.7)).border_1().border_color(p.border_strong)
 }
 
-fn segment(id: SharedString, label: &str, count: Option<usize>, on: bool, p: &Palette) -> Stateful<Div> {
+pub(crate) fn segment(id: SharedString, label: &str, count: Option<usize>, on: bool, p: &Palette) -> Stateful<Div> {
     div()
         .id(id)
         .flex()
