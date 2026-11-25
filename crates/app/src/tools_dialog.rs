@@ -105,6 +105,18 @@ impl ToolsPanel {
         if let Some(y) = std::env::var("SV_DEV_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
             this.scroll.set_offset(point(px(0.), px(-y)));
         }
+        // Solo en desarrollo: SV_DEV_SKIN_SEARCH busca esa skin 1,5 s después de abrir (con la grilla
+        // inicial ya pedida), para medir cuánto tarda en llenarse.
+        #[cfg(debug_assertions)]
+        if let Ok(q) = std::env::var("SV_DEV_SKIN_SEARCH") {
+            let search = this.search.clone();
+            window
+                .spawn(cx, async move |cx| {
+                    cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
+                    let _ = cx.update(|window, cx| search.update(cx, |s, cx| s.set_value(q, window, cx)));
+                })
+                .detach();
+        }
         this
     }
 

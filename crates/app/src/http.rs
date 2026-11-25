@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
-const WORKERS: usize = 6;
+/// CommunityDragon contesta cada imagen en ~0,4 s: con más descargas a la vez una grilla de skins se
+/// llena antes.
+const WORKERS: usize = 12;
 const MAX_BYTES: u64 = 32 << 20;
 /// Las imágenes de CommunityDragon "latest" pueden cambiar con un parche: se renuevan al mes.
 const CACHE_MAX_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -36,7 +38,8 @@ struct Job {
 
 #[derive(Default)]
 struct Queue {
-    /// Lo que se está mostrando: primero.
+    /// Lo que se está mostrando: primero, y lo último pedido antes (al buscar otra skin, lo nuevo en
+    /// pantalla no espera a lo que se pidió antes y quizás ya no se ve).
     urgent: VecDeque<Job>,
     /// Precargas: cuando no hay nada urgente.
     background: VecDeque<Job>,
@@ -75,7 +78,11 @@ impl ImageHttpClient {
                     let (lock, cv) = &*queue;
                     let mut q = lock.lock().unwrap();
                     loop {
-                        if let Some(j) = q.urgent.pop_front().or_else(|| q.background.pop_front()) {
+                        if let Some(j) = q.urgent.pop_back().or_else(|| q.background.pop_front()) {
+                            // Si ya nadie la espera (la imagen salió de pantalla), no se baja.
+                            if j.done.as_ref().is_some_and(|d| d.is_canceled()) {
+                                continue;
+                            }
                             break j;
                         }
                         q = cv.wait(q).unwrap();
