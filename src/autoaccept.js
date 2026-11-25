@@ -1,9 +1,16 @@
 // Acepta automáticamente la partida cuando aparece el "ready check" en el cliente.
 // Hace lo mismo que apretar "Aceptar": no toca nada dentro de la partida.
+// Revisa todos los clientes de juego abiertos (LoL y TFT), porque TFT tiene su propio cliente
+// (TFTClient.exe) con su propia API local; así el autoaceptar también funciona en TFT.
 const lcu = require('./lcu');
 
+const READY_CHECK = '/lol-matchmaking/v1/ready-check';
 const POLL_MS = 1000;
 const MAX_DELAY_S = 8; // el ready check dura ~10 s
+
+function isWaiting(json) {
+  return json?.state === 'InProgress' && json.playerResponse === 'None';
+}
 
 class AutoAccept {
   constructor({ onAccepted, onStatus }) {
@@ -12,7 +19,7 @@ class AutoAccept {
     this.enabled = false;
     this.delay = 0;
     this.timer = null;
-    this.pending = null; // ready check que ya estamos esperando para aceptar
+    this.pending = null; // { conn, timeout } del ready check que ya estamos esperando para aceptar
     this.connected = null;
   }
 
@@ -37,17 +44,40 @@ class AutoAccept {
     this.onStatus?.({ connected: value });
   }
 
-  async #readyCheck() {
-    const res = await lcu.request('GET', '/lol-matchmaking/v1/ready-check');
-    this.#setConnected(!!res);
-    // 404 = no hay partida encontrada en este momento.
-    return res && res.status === 200 ? res.json : null;
+  // Lee el ready check de una conexión concreta; null si no responde o no hay partida.
+  async #readyCheckOn(conn) {
+    try {
+      const res = await lcu.rawRequest(conn, 'GET', READY_CHECK);
+      // 404 = no hay partida encontrada en este momento (pero el cliente sí respondió).
+      return res.status === 200 ? res.json : null;
+    } catch {
+      return null; // cliente cerrado o lockfile viejo
+    }
+  }
+
+  // Busca un ready check pendiente en cualquier cliente abierto (LoL o TFT). Devuelve su conexión.
+  async #pendingClient() {
+    let connected = false;
+    for (const conn of lcu.gameClients()) {
+      let res;
+      try {
+        res = await lcu.rawRequest(conn, 'GET', READY_CHECK);
+      } catch {
+        continue; // este cliente no respondió
+      }
+      connected = true;
+      if (res.status === 200 && isWaiting(res.json)) {
+        this.#setConnected(true);
+        return conn;
+      }
+    }
+    this.#setConnected(connected);
+    return null;
   }
 
   async tick() {
-    const rc = await this.#readyCheck();
-    const waiting = rc?.state === 'InProgress' && rc.playerResponse === 'None';
-    if (!waiting) {
+    const conn = await this.#pendingClient();
+    if (!conn) {
       clearTimeout(this.pending?.timeout);
       this.pending = null;
       return;
@@ -55,12 +85,14 @@ class AutoAccept {
     if (this.pending) return;
 
     this.pending = {
+      conn,
       timeout: setTimeout(async () => {
-        // Revisamos de nuevo: puede que la hayas rechazado o aceptado a mano mientras tanto.
-        const now = await this.#readyCheck();
-        if (this.enabled && now?.state === 'InProgress' && now.playerResponse === 'None') {
-          const res = await lcu.request('POST', '/lol-matchmaking/v1/ready-check/accept');
-          if (res && res.status < 400) this.onAccepted?.();
+        // Revisamos de nuevo en ese mismo cliente: puede que la hayas rechazado o aceptado a mano.
+        if (this.enabled && isWaiting(await this.#readyCheckOn(conn))) {
+          try {
+            const res = await lcu.rawRequest(conn, 'POST', `${READY_CHECK}/accept`);
+            if (res.status < 400) this.onAccepted?.();
+          } catch {}
         }
       }, this.delay * 1000),
     };

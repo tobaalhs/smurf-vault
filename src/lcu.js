@@ -195,4 +195,36 @@ async function currentAccount({ force = false } = {}) {
   };
 }
 
-module.exports = { currentAccount, get, request, rawRequest, isConnected };
+// Carpetas de los clientes de juego que usan esta misma API local (LCU): LoL y TFT. Se leen de
+// RiotClientInstalls.json (p. ej. "C:/Riot Games/Teamfight Tactics/Live/" para el cliente de TFT).
+function installedGameDirs() {
+  const dirs = [];
+  try {
+    const installs = JSON.parse(
+      fs.readFileSync(pathLib.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'Riot Games', 'RiotClientInstalls.json'), 'utf8')
+    );
+    for (const p of Object.keys(installs.associated_client || {})) {
+      if (/league of legends|teamfight tactics/i.test(p)) dirs.push(p.replace(/\//g, '\\').replace(/[\\/]+$/, ''));
+    }
+  } catch {}
+  return dirs;
+}
+
+/**
+ * Conexión ({port, password}) de cada cliente de juego abierto (LoL y TFT). El cliente de TFT
+ * (TFTClient.exe) es el mismo cliente de League reutilizado: tiene su propia API local, con su
+ * lockfile en su carpeta de instalación. Así el autoaceptar funciona en ambos.
+ */
+function gameClients() {
+  const dirs = new Set([...LOCKFILE_DIRS, ...installedGameDirs()]);
+  const out = [];
+  for (const dir of dirs) {
+    try {
+      const [, , port, password] = fs.readFileSync(pathLib.join(dir, 'lockfile'), 'utf8').split(':');
+      if (port && password) out.push({ port, password });
+    } catch {}
+  }
+  return out;
+}
+
+module.exports = { currentAccount, get, request, rawRequest, isConnected, gameClients };

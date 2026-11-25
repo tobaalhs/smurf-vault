@@ -7,7 +7,8 @@ let rc = null; // estado del ready check simulado
 const calls = [];
 require.cache[require.resolve(root + 'lcu.js')] = {
   exports: {
-    request: async (method, p) => {
+    gameClients: () => [{ port: '1', password: 'x' }], // un cliente abierto simulado
+    rawRequest: async (_conn, method, p) => {
       calls.push(`${method} ${p}`);
       if (method === 'POST') { rc = { ...rc, playerResponse: 'Accepted' }; return { status: 204 }; }
       return rc ? { status: 200, json: rc } : { status: 404, json: null };
