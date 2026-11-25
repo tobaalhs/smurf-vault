@@ -39,7 +39,8 @@ impl LockScreen {
     pub fn new(vault: Entity<Vault>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let store = &vault.read(cx).store;
         let mode = if store.has_local() { Mode::Unlock } else { Mode::Create };
-        let splash = store.config.lock_skins.choose(&mut rand::thread_rng()).map(|id| splash_url(*id).into());
+        // Desenfocado 3 px, como en la versión Electron.
+        let splash = store.config.lock_skins.choose(&mut rand::thread_rng()).map(|id| crate::http::blurred(&splash_url(*id), 3).into());
         let pw1 = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("Contraseña maestra"));
         let pw2 = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("Repite la contraseña"));
         let on_enter = |this: &mut Self, _: &Entity<InputState>, ev: &InputEvent, window: &mut Window, cx: &mut Context<Self>| {

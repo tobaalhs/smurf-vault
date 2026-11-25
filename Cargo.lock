@@ -6667,6 +6667,7 @@ dependencies = [
  "chrono",
  "futures",
  "gpui-kit",
+ "image",
  "rand 0.8.8",
  "rodio",
  "rust-embed",

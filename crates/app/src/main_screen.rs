@@ -642,7 +642,8 @@ impl Render for MainScreen {
                     .h(px(vh + 60.))
                     .child(glow(0.75, 0.3, alpha(tier, 0.22), 420.))
                     .when_some(splash, |d, url| {
-                        d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover)).child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.26)))
+                        // Desenfocado 2 px, como el fondo de la versión Electron.
+                        d.child(img(SharedString::from(crate::http::blurred(&url, 2))).absolute().inset_0().size_full().object_fit(ObjectFit::Cover)).child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.26)))
                     }),
             )
             // Sombra suave detrás del nombre y los rangos, y velos para que la rueda y el texto se lean.

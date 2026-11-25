@@ -18,6 +18,9 @@ serde_json.workspace = true
 rust-embed = "8"
 futures = "0.3"
 ureq = "2"
+# Desenfoque de los splash de fondo (GPUI no tiene filtro de blur para imágenes). Misma versión que
+# ya trae GPUI.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 rand = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 # Solo reproducción (los sonidos se sintetizan): sin decodificadores de archivos.
