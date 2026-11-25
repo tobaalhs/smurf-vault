@@ -267,21 +267,52 @@ impl MainScreen {
                     ..Default::default()
                 });
             }
+            // SV_DEV_TOAST muestra avisos de prueba (para ver dónde y sobre qué quedan).
+            if std::env::var("SV_DEV_TOAST").is_ok() {
+                let after: u64 = std::env::var("SV_DEV_TOAST").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+                window
+                    .spawn(cx, async move |cx| {
+                        cx.background_executor().timer(std::time::Duration::from_millis(after)).await;
+                        let _ = cx.update(|window, cx| {
+                            use gpui_kit::component::{notification::Notification, WindowExt};
+                            for i in 1..=4 {
+                                window.push_notification(Notification::error(format!("Aviso de prueba {i}: API key de Riot inválida o caducada")), cx);
+                            }
+                            window.push_notification(Notification::success("Aviso de prueba: cuentas actualizadas"), cx);
+                        });
+                    })
+                    .detach();
+            }
             // SV_DEV_DIALOG abre un diálogo al arrancar (para revisarlos sin hacer clic).
             if let Ok(which) = std::env::var("SV_DEV_DIALOG") {
                 let (vault, selected) = (this.vault.clone(), this.selected.clone());
-                window.defer(cx, move |window, cx| {
-                    let acc = selected.and_then(|id| vault.read(cx).store.data()?.account(&id).cloned());
-                    match which.as_str() {
-                        "account" => crate::dialogs::open_account(vault, acc, window, cx),
-                        "add" => crate::dialogs::open_add(vault, window, cx),
-                        "import" => crate::dialogs::open_import(vault, window, cx),
-                        "riotkey" => crate::dialogs::open_riot_key(vault, None, window, cx),
-                        "tools" => crate::tools_dialog::open_tools(vault, window, cx),
-                        "settings" => crate::settings_dialog::open_settings(vault, window, cx),
-                        _ => {}
-                    }
-                });
+                // SV_DEV_DIALOG_DELAY (ms) lo abre un rato después (p. ej. con avisos ya en pantalla).
+                let delay: u64 = std::env::var("SV_DEV_DIALOG_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+                window
+                    .spawn(cx, async move |cx| {
+                        // "tools>settings" abre uno, lo cierra y abre el siguiente.
+                        for (i, which) in which.split('>').enumerate() {
+                            cx.background_executor().timer(std::time::Duration::from_millis(if i == 0 { delay } else { 800 })).await;
+                            let (vault, selected) = (vault.clone(), selected.clone());
+                            let _ = cx.update(|window, cx| {
+                                use gpui_kit::component::WindowExt as _;
+                                if i > 0 {
+                                    window.close_dialog(cx);
+                                }
+                                let acc = selected.and_then(|id| vault.read(cx).store.data()?.account(&id).cloned());
+                                match which {
+                                    "account" => crate::dialogs::open_account(vault, acc, window, cx),
+                                    "add" => crate::dialogs::open_add(vault, window, cx),
+                                    "import" => crate::dialogs::open_import(vault, window, cx),
+                                    "riotkey" => crate::dialogs::open_riot_key(vault, None, window, cx),
+                                    "tools" => crate::tools_dialog::open_tools(vault, window, cx),
+                                    "settings" => crate::settings_dialog::open_settings(vault, window, cx),
+                                    _ => {}
+                                }
+                            });
+                        }
+                    })
+                    .detach();
             }
         }
         this.keep_selection_visible(cx);

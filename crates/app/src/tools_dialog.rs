@@ -383,5 +383,5 @@ impl Render for ToolsPanel {
 
 pub fn open_tools(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
     let panel = cx.new(|cx| ToolsPanel::new(vault, window, cx));
-    window.open_dialog(cx, move |dialog, _, _| below_bar(dialog).title(dialog_title("Herramientas")).w(px(560.)).child(panel.clone()));
+    window.open_dialog(cx, move |dialog, _, _| below_bar(dialog).title(dialog_title("Herramientas")).w(px(616.)).child(panel.clone()));
 }

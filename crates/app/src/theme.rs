@@ -120,6 +120,13 @@ impl Palette {
         t.font_size = px(16.);
         t.radius = px(8.);
         t.radius_lg = px(12.);
+        // Avisos: bajo la barra de arriba (60 px) y separados del borde, alineados con el borde de
+        // arriba de los diálogos (que se abren 22 px bajo la barra).
+        let m = &mut t.notification.margins;
+        m.top = px(60. + 22.);
+        m.right = px(22.);
+        m.bottom = px(22.);
+        m.left = px(22.);
 
         t.background = self.bg;
         t.foreground = self.text;
