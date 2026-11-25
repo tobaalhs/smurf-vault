@@ -18,7 +18,6 @@ use serde_json::{json, Value};
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
-use std::time::Instant;
 use sv_core::model::Account;
 use sv_core::ranks::{best_rank, can_duo, tier_es, DUO_TIERS};
 
@@ -49,16 +48,6 @@ pub enum Tab {
 
 type Choice = SelectState<Vec<SharedString>>;
 
-/// El fondo sigue un poco al mouse (actual y destino, en px).
-#[derive(Default)]
-struct Parallax {
-    x: f32,
-    y: f32,
-    tx: f32,
-    ty: f32,
-    last: Option<Instant>,
-}
-
 pub struct MainScreen {
     pub(crate) vault: Entity<Vault>,
     focus: FocusHandle,
@@ -85,7 +74,8 @@ pub struct MainScreen {
     pub(crate) detail_w: f32,
     /// Ancho del panel de la rueda en el último dibujo.
     pub(crate) side_w: f32,
-    parallax: Parallax,
+    /// El fondo (vista aparte, ver stage_bg.rs); se le avisa dónde está el mouse.
+    pub(crate) bg: Option<Entity<crate::stage_bg::StageBg>>,
     /// Detección del cliente de LoL (ver client.rs): consulta en curso, cuentas ya avisadas, la
     /// cuenta abierta que no está guardada (para el aviso de vincular) y las tareas periódicas.
     pub(crate) detecting: bool,
@@ -236,7 +226,7 @@ impl MainScreen {
             play_hover: false,
             detail_w: 600.,
             side_w: 400.,
-            parallax: Parallax::default(),
+            bg: None,
             detecting: false,
             seen_puuids: Default::default(),
             detected: None,
@@ -576,20 +566,16 @@ impl MainScreen {
         )
     }
 
-    /// Avanza el parallax del fondo hacia donde está el mouse.
-    fn advance_parallax(&mut self, window: &mut Window) {
-        let p = &mut self.parallax;
-        if (p.tx - p.x).abs() < 0.05 && (p.ty - p.y).abs() < 0.05 {
-            p.last = None;
-            return;
-        }
-        let now = Instant::now();
-        let dt = p.last.map(|t| now.duration_since(t).as_secs_f32()).unwrap_or(1. / 60.).min(0.1);
-        p.last = Some(now);
-        let k = 1. - (1. - 0.06f32).powf(dt * 60.);
-        p.x += (p.tx - p.x) * k;
-        p.y += (p.ty - p.y) * k;
-        window.request_animation_frame();
+    /// Lo que dibuja el fondo: el splash de la cuenta elegida, el color de su liga y si no hay cuentas.
+    pub(crate) fn bg_scene(&self, cx: &App) -> (Option<SharedString>, Hsla, bool) {
+        let empty = !self.vault.read(cx).store.data().is_some_and(|d| !d.accounts.is_empty());
+        let account = self.selected_account(cx);
+        let tier = account.as_ref().map(ui::account_tier_color).unwrap_or_else(|| ui::tier_color(None));
+        let splash = account.as_ref().and_then(|a| {
+            let store = &self.vault.read(cx).store;
+            ui::splash_for(a, store.session().map(|s| &s.history), |_| String::new()).0
+        });
+        (splash, tier, empty)
     }
 }
 
@@ -599,14 +585,8 @@ impl Focusable for MainScreen {
     }
 }
 
-/// Franja de degradado horizontal entre dos posiciones (en fracción del ancho).
-fn band(from: f32, to: f32, a: Hsla, b: Hsla) -> Div {
-    div().absolute().top_0().bottom_0().left(relative(from)).w(relative(to - from)).bg(linear_gradient(90., linear_color_stop(a, 0.), linear_color_stop(b, 1.)))
-}
-
 impl Render for MainScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = palette(cx);
         let has_accounts = self.vault.read(cx).store.data().is_some_and(|d| !d.accounts.is_empty());
         if !has_accounts {
             self.side_w = 0.;
@@ -622,7 +602,6 @@ impl Render for MainScreen {
             self.keep_selection_visible(cx);
         }
         self.advance_wheel(list.len(), window);
-        self.advance_parallax(window);
         let viewport = window.viewport_size();
         let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height) - 60.);
         let side_w = (vw * 0.44).max(400.);
@@ -631,58 +610,22 @@ impl Render for MainScreen {
         self.side_w = side_w;
 
         let account = self.selected_account(cx);
-        let tier = account.as_ref().map(ui::account_tier_color).unwrap_or_else(|| ui::tier_color(None));
-        let splash = account.as_ref().and_then(|a| {
-            let store = &self.vault.read(cx).store;
-            ui::splash_for(a, store.session().map(|s| &s.history), |_| String::new()).0
-        });
-        let (px_, py_) = (self.parallax.x, self.parallax.y);
-        let glow = |x: f32, y: f32, color: Hsla, blur: f32| {
-            div().absolute().left(relative(x)).top(relative(y)).size(px(2.)).shadow(vec![BoxShadow { inset: false,
-                color,
-                offset: point(px(0.), px(0.)),
-                blur_radius: px(blur),
-                spread_radius: px(blur * 0.55),
-            }])
-        };
+        let vh_ = vh;
 
         div()
             .id("stage")
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key))
+            // El mouse solo mueve el fondo (otra vista): esta pantalla no se vuelve a dibujar.
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
-                this.parallax.tx = -(f32::from(ev.position.x) / vw - 0.5) * 22.;
-                this.parallax.ty = -((f32::from(ev.position.y) - 60.) / vh - 0.5) * 14.;
-                cx.notify();
+                if let Some(bg) = &this.bg {
+                    let (fx, fy) = (f32::from(ev.position.x) / vw, (f32::from(ev.position.y) - 60.) / vh_);
+                    bg.update(cx, |b, cx| b.follow(fx, fy, cx));
+                }
             }))
             .relative()
             .size_full()
             .overflow_hidden()
-            .bg(p.bg)
-            // Fondo: halo del color de la liga y el splash del perfil, oscurecido para que el texto se lea.
-            .child(
-                div()
-                    .absolute()
-                    .left(px(-30. + px_))
-                    .top(px(-30. + py_))
-                    .w(px(vw + 60.))
-                    .h(px(vh + 60.))
-                    .child(glow(0.75, 0.3, alpha(tier, 0.22), 420.))
-                    .when_some(splash, |d, url| {
-                        // Desenfocado 2 px, como el fondo de la versión Electron.
-                        d.child(img(SharedString::from(crate::http::blurred(&url, 2))).absolute().inset_0().size_full().object_fit(ObjectFit::Cover)).child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.26)))
-                    }),
-            )
-            // Sombra suave detrás del nombre y los rangos, y velos para que la rueda y el texto se lean.
-            .child(glow(0.6, 0.38, alpha(p.bg, 0.4), 260.))
-            .child(band(0., 0.36, alpha(p.bg, 0.84), alpha(p.bg, 0.7)))
-            .child(band(0.36, 0.62, alpha(p.bg, 0.7), alpha(p.bg, 0.38)))
-            .child(band(0.62, 1.0, alpha(p.bg, 0.38), alpha(p.bg, 0.2)))
-            .child(div().absolute().left_0().right_0().bottom_0().h(relative(0.4)).bg(linear_gradient(
-                180.,
-                linear_color_stop(alpha(p.bg, 0.), 0.),
-                linear_color_stop(alpha(p.bg, 0.96), 1.),
-            )))
             .child(h_flex().relative().size_full().items_start().child(self.side(side_w, &list, cx)).when_some(account, |d, a| d.child(self.detail(&a, cx))))
             .children(self.client_overlays(cx))
             .into_any_element()

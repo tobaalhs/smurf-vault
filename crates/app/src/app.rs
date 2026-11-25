@@ -17,7 +17,8 @@ use gpui_kit::*;
 
 enum Screen {
     Lock(Entity<LockScreen>),
-    Main(Entity<MainScreen>),
+    /// La pantalla principal y su fondo, que se dibuja aparte (ver stage_bg.rs).
+    Main(Entity<MainScreen>, Entity<crate::stage_bg::StageBg>),
 }
 
 pub struct AppView {
@@ -85,7 +86,10 @@ impl AppView {
 
     fn show_main(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self._screen_sub = None;
-        self.screen = Screen::Main(cx.new(|cx| MainScreen::new(self.vault.clone(), window, cx)));
+        let main = cx.new(|cx| MainScreen::new(self.vault.clone(), window, cx));
+        let bg = cx.new(|_| crate::stage_bg::StageBg::new(main.downgrade()));
+        main.update(cx, |m, _| m.bg = Some(bg.clone()));
+        self.screen = Screen::Main(main, bg);
         cx.notify();
     }
 
@@ -227,7 +231,7 @@ impl AppView {
 
     /// Atajos de la pantalla principal: Ctrl+L bloquea, Ctrl+N agrega una cuenta.
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if !ev.keystroke.modifiers.control || !matches!(self.screen, Screen::Main(_)) {
+        if !ev.keystroke.modifiers.control || !matches!(self.screen, Screen::Main(_, _)) {
             return;
         }
         match ev.keystroke.key.as_str() {
@@ -252,15 +256,24 @@ impl Render for AppView {
                 .child(lock.clone())
                 .child(div().absolute().top_0().left_0().right_0().child(TitleBar::new().h(px(60.)).bg(transparent_black()).border_0()))
                 .into_any_element(),
-            Screen::Main(main) => {
-                let main = main.clone();
+            Screen::Main(main, bg) => {
+                let (main, bg) = (main.clone(), bg.clone());
                 v_flex()
                     .relative()
                     .size_full()
                     .bg(p.bg)
                     .on_key_down(cx.listener(Self::on_key))
                     .child(self.top_bar(cx))
-                    .child(div().flex_1().min_h_0().child(main))
+                    // El fondo va detrás y la pantalla encima, en caché: al mover el mouse solo se
+                    // redibuja el fondo.
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .relative()
+                            .child(bg)
+                            .child(AnyView::from(main).cached(StyleRefinement::default().absolute().inset_0().size_full())),
+                    )
                     .when(dialog_open, |d| {
                         d.child(div().id("dialog-backdrop").absolute().top(px(60.)).left_0().right_0().bottom_0().bg(alpha(p.bg, 0.86)).occlude())
                     })

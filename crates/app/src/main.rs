@@ -12,6 +12,7 @@ mod lock;
 mod main_screen;
 mod settings_dialog;
 mod sounds;
+mod stage_bg;
 mod switch;
 mod state;
 mod tabs;
