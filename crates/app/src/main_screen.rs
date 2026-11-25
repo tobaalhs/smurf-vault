@@ -172,6 +172,19 @@ impl MainScreen {
                 Ok("champions") => Tab::Champions,
                 _ => Tab::Summary,
             };
+            // SV_DEV_DIALOG abre un diálogo al arrancar (para revisarlos sin hacer clic).
+            if let Ok(which) = std::env::var("SV_DEV_DIALOG") {
+                let (vault, selected) = (this.vault.clone(), this.selected.clone());
+                window.defer(cx, move |window, cx| {
+                    let acc = selected.and_then(|id| vault.read(cx).store.data()?.account(&id).cloned());
+                    match which.as_str() {
+                        "account" => crate::dialogs::open_account(vault, acc, window, cx),
+                        "add" => crate::dialogs::open_add(vault, window, cx),
+                        "import" => crate::dialogs::open_import(vault, window, cx),
+                        _ => {}
+                    }
+                });
+            }
         }
         this.keep_selection_visible(cx);
         this.focus.focus(window, cx);
@@ -466,7 +479,26 @@ impl MainScreen {
                         .text_color(p.muted)
                         .text_size(px(13.))
                         .child("Agrega tu primera cuenta iniciando sesión en el cliente, o importa la lista que tenías en un txt."),
-                ),
+                )
+                .child({
+                    let (add, import) = (self.vault.clone(), self.vault.clone());
+                    h_flex()
+                        .gap(px(8.))
+                        .mt(px(6.))
+                        .child(
+                            Button::new("empty-add")
+                                .primary()
+                                .icon(Icon::new(IconName::Plus))
+                                .label("Nueva cuenta")
+                                .on_click(move |_, window, cx| crate::dialogs::open_add(add.clone(), window, cx)),
+                        )
+                        .child(
+                            Button::new("empty-import")
+                                .icon(Icon::empty().path(assets::icon("upload")))
+                                .label("Importar txt")
+                                .on_click(move |_, window, cx| crate::dialogs::open_import(import.clone(), window, cx)),
+                        )
+                }),
         )
     }
 }

@@ -6473,6 +6473,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "rand 0.8.8",
+ "regex",
  "scrypt",
  "serde",
  "serde_json",

@@ -4,6 +4,7 @@
 mod app;
 mod assets;
 mod detail;
+mod dialogs;
 mod http;
 mod lock;
 mod main_screen;

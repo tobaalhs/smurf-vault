@@ -6,9 +6,12 @@ use crate::main_screen::MainScreen;
 use crate::state::Vault;
 use crate::theme::palette;
 use crate::ui::alpha;
+use crate::dialogs;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{h_flex, v_flex, Icon, IconName, TitleBar, WindowExt};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 enum Screen {
@@ -94,25 +97,69 @@ impl AppView {
                             .tooltip("Bloquear la bóveda: oculta tus cuentas hasta que pongas la contraseña maestra")
                             .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx))),
                     )
-                    .child(
+                    .child({
+                        let vault = self.vault.clone();
                         Button::new("add-account")
                             .primary()
                             .icon(Icon::new(IconName::Plus))
                             .label("Nueva cuenta")
-                            .on_click(|_, window, cx| window.push_notification(Notification::info("Agregar cuentas llega en la próxima parte de esta fase."), cx)),
-                    )
-                    .child(
-                        Button::new("more")
-                            .icon(Icon::new(IconName::Ellipsis))
-                            .on_click(|_, window, cx| window.push_notification(Notification::info("El menú de opciones llega en la próxima parte de esta fase."), cx)),
-                    ),
+                            .tooltip("Inicia sesión en el Riot Client y la cuenta se guarda sola (Ctrl N)")
+                            .on_click(move |_, window, cx| dialogs::open_add(vault.clone(), window, cx))
+                    })
+                    .child(self.menu(cx)),
             )
+    }
+
+    /// Menú ⋯ con las acciones que no tienen botón propio.
+    fn menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let vault = self.vault.clone();
+        let view = cx.entity().downgrade();
+        let soon = |what: &'static str| {
+            move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                window.push_notification(Notification::info(format!("{what} llega en una próxima fase de la migración.")), cx)
+            }
+        };
+        Button::new("more").icon(Icon::new(IconName::Ellipsis)).dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+            let (manual, import, view) = (vault.clone(), vault.clone(), view.clone());
+            menu.item(
+                PopupMenuItem::new("Agregar cuenta a mano")
+                    .icon(Icon::empty().path(assets::icon("pencil")))
+                    .on_click(move |_, window, cx| dialogs::open_account(manual.clone(), None, window, cx)),
+            )
+            .item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(soon("Actualizar con la API de Riot")))
+            .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(soon("Herramientas")))
+            .item(
+                PopupMenuItem::new("Importar desde txt")
+                    .icon(Icon::empty().path(assets::icon("upload")))
+                    .on_click(move |_, window, cx| dialogs::open_import(import.clone(), window, cx)),
+            )
+            .item(PopupMenuItem::new("Ajustes").icon(Icon::new(IconName::Settings)).on_click(soon("Ajustes")))
+            .separator()
+            .item(PopupMenuItem::new("Bloquear bóveda  (Ctrl L)").icon(Icon::empty().path(assets::icon("lock"))).on_click(move |_, window, cx| {
+                view.update(cx, |this, cx| this.lock(window, cx)).ok();
+            }))
+        })
+    }
+
+    /// Atajos de la pantalla principal: Ctrl+L bloquea, Ctrl+N agrega una cuenta.
+    fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !ev.keystroke.modifiers.control || !matches!(self.screen, Screen::Main(_)) {
+            return;
+        }
+        match ev.keystroke.key.as_str() {
+            "l" => self.lock(window, cx),
+            "n" => dialogs::open_add(self.vault.clone(), window, cx),
+            _ => return,
+        }
+        cx.stop_propagation();
     }
 }
 
 impl Render for AppView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
+        // Con un diálogo abierto se oscurece solo lo que está bajo la barra: la barra sigue usable.
+        let dialog_open = window.has_active_dialog(cx);
         match &self.screen {
             // En el bloqueo, la barra va transparente sobre el fondo: solo para mover y cerrar la ventana.
             Screen::Lock(lock) => div()
@@ -123,7 +170,17 @@ impl Render for AppView {
                 .into_any_element(),
             Screen::Main(main) => {
                 let main = main.clone();
-                v_flex().size_full().bg(p.bg).child(self.top_bar(cx)).child(div().flex_1().min_h_0().child(main)).into_any_element()
+                v_flex()
+                    .relative()
+                    .size_full()
+                    .bg(p.bg)
+                    .on_key_down(cx.listener(Self::on_key))
+                    .child(self.top_bar(cx))
+                    .child(div().flex_1().min_h_0().child(main))
+                    .when(dialog_open, |d| {
+                        d.child(div().id("dialog-backdrop").absolute().top(px(60.)).left_0().right_0().bottom_0().bg(alpha(p.bg, 0.72)).occlude())
+                    })
+                    .into_any_element()
             }
         }
     }

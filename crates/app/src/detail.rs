@@ -373,12 +373,13 @@ impl MainScreen {
                     .label(if can_play { "JUGAR" } else { "INICIAR SESIÓN" })
                     .on_click(cx.listener(|this, _, window, cx| this.play_selected(window, cx))),
             )
-            .child(
+            .child({
+                let (vault, acc) = (self.vault.clone(), a.clone());
                 Button::new("edit")
                     .icon(Icon::empty().path(assets::icon("pencil")))
                     .label("Editar")
-                    .on_click(|_, window, cx| window.push_notification(Notification::info("Editar cuentas llega en la próxima parte de esta fase."), cx)),
-            )
+                    .on_click(move |_, window, cx| crate::dialogs::open_account(vault.clone(), Some(acc.clone()), window, cx))
+            })
             .child(
                 Button::new("refresh")
                     .icon(Icon::new(IconName::RefreshCw))
