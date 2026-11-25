@@ -294,6 +294,10 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(debug_assertions)]
+        if std::env::var("SV_DEV_FPS").is_ok() {
+            eprintln!("app");
+        }
         let p = palette(cx);
         // Con un diálogo abierto se oscurece solo lo que está bajo la barra: la barra sigue usable.
         let dialog_open = window.has_active_dialog(cx);

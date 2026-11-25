@@ -25,12 +25,13 @@ mod wheel;
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 use std::sync::Arc;
-use std::time::Duration;
 
 fn main() {
     let paths = sv_core::paths::Paths::default();
     // Una sola instancia: si ya estaba abierta (p. ej. en la bandeja), se muestra esa.
-    if !desktop::single_instance(&paths.dir) {
+    // Solo en desarrollo: SV_DEV_MULTI deja abrir una copia de prueba junto a la real.
+    let multi = cfg!(debug_assertions) && std::env::var("SV_DEV_MULTI").is_ok();
+    if !multi && !desktop::single_instance(&paths.dir) {
         return;
     }
     // Al iniciar Windows parte en la bandeja; sin bandeja no tendría cómo abrirse, así que se muestra.
@@ -46,8 +47,9 @@ fn main() {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(820.), px(560.))),
             app_id: Some("com.tobaalhs.smurfvault".into()),
-            // La app pasa mucho tiempo abierta sin uso: sin foco, dibuja lo justo.
-            inactive_frame_interval: Some(Duration::from_millis(250)),
+            // Sin límite de cuadros sin foco: el fondo sigue al mouse aunque la ventana no tenga el
+            // foco (como en Electron). Sin nada animándose no se dibuja nada igual.
+            inactive_frame_interval: None,
             show: !start_hidden,
             focus: !start_hidden,
             ..TitleBar::window_options()

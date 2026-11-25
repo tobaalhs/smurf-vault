@@ -66,6 +66,20 @@ fn band(from: f32, to: f32, a: Hsla, b: Hsla) -> Div {
 impl Render for StageBg {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
+        // Solo en desarrollo: SV_DEV_FPS anota cada cuánto llega un cuadro del fondo.
+        #[cfg(debug_assertions)]
+        if std::env::var("SV_DEV_FPS").is_ok() {
+            thread_local!(static LAST: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) });
+            let gap = LAST.with(|l| l.replace(Some(Instant::now()))).map(|t| t.elapsed().as_secs_f64() * 1000.).unwrap_or(0.);
+            eprintln!("bg {gap:.1} {:.2} {:.2}", self.x, self.tx);
+        }
+        // Solo en desarrollo: SV_DEV_SWAY mueve el fondo solo, lento, para revisar que se deslice.
+        #[cfg(debug_assertions)]
+        if std::env::var("SV_DEV_SWAY").is_ok() {
+            let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f32();
+            self.tx = (t * 0.7).sin() * 11.;
+            self.ty = (t * 0.5).cos() * 7.;
+        }
         self.advance(window);
         let (splash, tier, empty) = self.main.upgrade().map(|m| m.read(cx).bg_scene(cx)).unwrap_or((None, crate::ui::tier_color(None), true));
         let base = div().absolute().inset_0().overflow_hidden().bg(p.bg);
@@ -84,7 +98,7 @@ impl Render for StageBg {
             }])
         };
         base
-            // Halo del color de la liga y el splash del perfil, que se mueven con el mouse.
+            // Halo del color de la liga, que se mueve con el mouse.
             .child(
                 div()
                     .absolute()
@@ -92,13 +106,35 @@ impl Render for StageBg {
                     .top(px(-30. + self.y))
                     .w(px(vw + 60.))
                     .h(px(vh + 60.))
-                    .child(glow(0.75, 0.3, alpha(tier, 0.22), 420.))
-                    .when_some(splash, |d, url| {
-                        // Desenfocado 2 px, como el fondo de la versión Electron.
-                        d.child(img(SharedString::from(crate::http::blurred(&url, 2))).absolute().inset_0().size_full().object_fit(ObjectFit::Cover))
-                            .child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16)))
-                    }),
+                    .child(glow(0.75, 0.3, alpha(tier, 0.22), 420.)),
             )
+            // El splash: GPUI pinta las imágenes en píxeles enteros, y el parallax avanza de a
+            // fracciones de píxel; así se vería a saltos. Se dibuja en los cuatro píxeles enteros
+            // vecinos mezclados según la parte fraccionaria (interpolación bilineal), como hace la
+            // GPU con el translate3d de Electron: se desliza suave.
+            .when_some(splash, |d, url| {
+                let url = SharedString::from(crate::http::blurred(&url, 2));
+                let (ix, iy) = (self.x.floor(), self.y.floor());
+                let (fx, fy) = (self.x - ix, self.y - iy);
+                // Opacidades para que, pintando una encima de otra, cada copia aporte su peso.
+                let w11 = fx * fy;
+                let w01 = if w11 < 0.999 { fy * (1. - fx) / (1. - w11) } else { 0. };
+                let layer = |dx: f32, dy: f32, opacity: f32| {
+                    img(url.clone())
+                        .absolute()
+                        .left(px(-30. + ix + dx))
+                        .top(px(-30. + iy + dy))
+                        .w(px(vw + 60.))
+                        .h(px(vh + 60.))
+                        .object_fit(ObjectFit::Cover)
+                        .opacity(opacity)
+                };
+                d.child(layer(0., 0., 1.))
+                    .when(fx > 0.002, |d| d.child(layer(1., 0., fx)))
+                    .when(w01 > 0.002, |d| d.child(layer(0., 1., w01)))
+                    .when(w11 > 0.002, |d| d.child(layer(1., 1., w11)))
+                    .child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16)))
+            })
             // Sombra suave detrás del nombre y los rangos, y velos para que la rueda y el texto se lean.
             .child(glow(0.6, 0.38, alpha(p.bg, 0.32), 260.))
             .child(band(0., 0.36, alpha(p.bg, 0.74), alpha(p.bg, 0.58)))

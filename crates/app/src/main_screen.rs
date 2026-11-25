@@ -587,6 +587,10 @@ impl Focusable for MainScreen {
 
 impl Render for MainScreen {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        #[cfg(debug_assertions)]
+        if std::env::var("SV_DEV_FPS").is_ok() {
+            eprintln!("main");
+        }
         let has_accounts = self.vault.read(cx).store.data().is_some_and(|d| !d.accounts.is_empty());
         if !has_accounts {
             self.side_w = 0.;
