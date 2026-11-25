@@ -3,3 +3,7 @@ dist/
 credentials.json
 *.dat
 LeagueAccounts-main/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/

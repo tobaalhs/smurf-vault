@@ -1,0 +1,15 @@
+{
+  "format": "smurf-vault",
+  "v": 1,
+  "kdf": {
+    "name": "scrypt",
+    "N": 131072,
+    "r": 8,
+    "p": 1,
+    "salt": "5YsUMykcjghSUsUMviY4kQ=="
+  },
+  "iv": "yUGIe0FYBsyN5In5",
+  "tag": "tcqg0A5peOJR3HRmZp8msw==",
+  "data": "RUJDyFrL0D9lz0pNQHMo2A77jXEx/n2iDpmlfBrpRrJXuC8Z4juPoiinIdeupubh3wm4swZo0NNP5LQOAq4QRnUNpdVYbLyFGLoaI7JLA0AYOjnacZLTlaRPr2dqyfdS7af54762P4QJeimkYWRnPHjqSjriC0goHExisTlA",
+  "updatedAt": "2026-11-25T04:08:23.910Z"
+}
