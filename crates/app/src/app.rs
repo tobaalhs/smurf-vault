@@ -25,12 +25,24 @@ pub struct AppView {
     vault: Entity<Vault>,
     screen: Screen,
     _screen_sub: Option<Subscription>,
+    /// Ícono de la bandeja: existe solo si al cerrar la app sigue en segundo plano.
+    tray: Option<crate::desktop::Tray>,
 }
 
 impl AppView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         window.set_window_title("Smurf Vault");
+        crate::desktop::remember_window(window);
         let vault = cx.new(|_| Vault::new());
+        // Cerrar la ventana la deja en la bandeja (si está activado), salvo con "Salir".
+        let close_vault = vault.clone();
+        window.on_window_should_close(cx, move |_, cx| {
+            if crate::desktop::quitting() || !close_vault.read(cx).store.config.close_to_tray {
+                return true;
+            }
+            crate::desktop::hide_main_window();
+            false
+        });
         crate::client::refresh_game_data(vault.clone(), cx);
         // Autoaceptar y aparecer desconectado corren solos (también con la bóveda bloqueada).
         crate::tools_dialog::apply_config(&vault, cx);
@@ -66,7 +78,34 @@ impl AppView {
         })
         .detach();
         let lock =cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
-        let mut this = Self { vault, screen: Screen::Lock(lock.clone()), _screen_sub: None };
+        let mut this = Self { vault, screen: Screen::Lock(lock.clone()), _screen_sub: None, tray: None };
+        this.sync_tray(cx);
+        // La bandeja: clic en el ícono o en su menú.
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(150)).await;
+            let alive = this.update_in(cx, |this, window, cx| {
+                this.sync_tray(cx);
+                let actions = this.tray.as_ref().map(|t| t.poll()).unwrap_or_default();
+                for action in actions {
+                    match action {
+                        crate::desktop::TrayAction::Open => crate::desktop::show_main_window(),
+                        crate::desktop::TrayAction::Lock => {
+                            if matches!(this.screen, Screen::Main(_, _)) {
+                                this.lock(window, cx);
+                            }
+                        }
+                        crate::desktop::TrayAction::Quit => {
+                            crate::desktop::set_quitting();
+                            cx.quit();
+                        }
+                    }
+                }
+            });
+            if alive.is_err() {
+                break;
+            }
+        })
+        .detach();
         this.watch_lock(&lock, window, cx);
         this
     }
@@ -82,6 +121,16 @@ impl AppView {
         self.watch_lock(&lock, window, cx);
         self.screen = Screen::Lock(lock);
         cx.notify();
+    }
+
+    /// El ícono de la bandeja existe solo si al cerrar la app sigue en segundo plano.
+    fn sync_tray(&mut self, cx: &App) {
+        let wanted = self.vault.read(cx).store.config.close_to_tray;
+        if wanted && self.tray.is_none() {
+            self.tray = crate::desktop::Tray::new().ok();
+        } else if !wanted && self.tray.is_some() {
+            self.tray = None;
+        }
     }
 
     fn show_main(&mut self, window: &mut Window, cx: &mut Context<Self>) {

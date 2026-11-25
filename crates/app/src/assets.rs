@@ -47,3 +47,6 @@ pub fn logo() -> Arc<Image> {
     })
     .clone()
 }
+
+/// Ícono de la app (PNG), para la bandeja del sistema.
+pub const ICON_PNG: &[u8] = include_bytes!("../assets/images/icon.png");

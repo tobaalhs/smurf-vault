@@ -234,6 +234,52 @@ impl SettingsPanel {
             )
     }
 
+    /// Ventana: seguir en la bandeja al cerrar y abrir al iniciar Windows.
+    fn window_block(&self, cx: &mut Context<Self>) -> Div {
+        let p = palette(cx);
+        let tray = self.vault.read(cx).store.config.close_to_tray;
+        let at_login = crate::desktop::open_at_login();
+        let row = |title: &'static str, hint_text: &'static str, toggle: gpui_kit::component::switch::Switch| {
+            h_flex()
+                .gap(px(12.))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap(px(2.))
+                        .child(div().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title))
+                        .child(div().text_size(px(12.)).text_color(p.muted).child(hint_text)),
+                )
+                .child(toggle)
+        };
+        let vault = self.vault.clone();
+        let entity = cx.entity().downgrade();
+        block(&p)
+            .child(section(Icon::new(IconName::Minus), "Ventana", &p))
+            .child(row(
+                "Al cerrar, seguir en la bandeja",
+                "Queda junto al reloj y autoaceptar y la detección de cuentas siguen funcionando. Para salir del todo: clic derecho en el ícono → Salir.",
+                gpui_kit::component::switch::Switch::new("set-tray").checked(tray).color(p.cyan).on_click(move |v: &bool, _, cx| {
+                    let v = *v;
+                    vault.update(cx, |vault, cx| {
+                        vault.store.config.close_to_tray = v;
+                        let _ = vault.store.save_config();
+                        cx.notify();
+                    });
+                }),
+            ))
+            .child(row(
+                "Abrir al iniciar Windows",
+                if cfg!(debug_assertions) { "Solo funciona en la versión instalada." } else { "Parte en la bandeja, sin abrir la ventana." },
+                gpui_kit::component::switch::Switch::new("set-login").checked(at_login).color(p.cyan).on_click(move |v: &bool, window, cx| {
+                    if let Err(e) = crate::desktop::set_open_at_login(*v) {
+                        window.push_notification(Notification::error(e), cx);
+                    }
+                    entity.update(cx, |_, cx| cx.notify()).ok();
+                }),
+            ))
+    }
+
     /// Guarda la API key de Riot (cifrada en la bóveda).
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let key = self.riot_key.read(cx).value().trim().to_string();
@@ -289,6 +335,7 @@ impl Render for SettingsPanel {
             .pr(px(4.))
             .gap(px(12.))
             .child(self.google_block(cx))
+            .child(self.window_block(cx))
             .child(
                 block(&p)
                     .child(section(Icon::empty().path(crate::assets::icon("lock-keyhole")), "Contraseña maestra", &p))

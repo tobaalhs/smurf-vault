@@ -4,6 +4,7 @@
 mod app;
 mod assets;
 mod client;
+mod desktop;
 mod detail;
 mod dialogs;
 mod google;
@@ -27,10 +28,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn main() {
+    let paths = sv_core::paths::Paths::default();
+    // Una sola instancia: si ya estaba abierta (p. ej. en la bandeja), se muestra esa.
+    if !desktop::single_instance(&paths.dir) {
+        return;
+    }
+    // Al iniciar Windows parte en la bandeja; sin bandeja no tendría cómo abrirse, así que se muestra.
+    let start_hidden = std::env::args().any(|a| a == desktop::STARTUP_ARG) && sv_core::config::Config::load(&paths).close_to_tray;
     gpui_kit::application().with_assets(assets::Assets).run(move |cx| {
         gpui_kit::init(cx);
         cx.set_http_client(Arc::new(http::ImageHttpClient::new()));
-        let config = sv_core::config::Config::load(&Default::default());
+        let config = sv_core::config::Config::load(&paths);
         theme::Palette::from_theme(&config.theme).apply(cx);
 
         let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
@@ -40,6 +48,8 @@ fn main() {
             app_id: Some("com.tobaalhs.smurfvault".into()),
             // La app pasa mucho tiempo abierta sin uso: sin foco, dibuja lo justo.
             inactive_frame_interval: Some(Duration::from_millis(250)),
+            show: !start_hidden,
+            focus: !start_hidden,
             ..TitleBar::window_options()
         };
         gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| app::AppView::new(window, cx)))
