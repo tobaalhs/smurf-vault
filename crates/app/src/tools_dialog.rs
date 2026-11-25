@@ -9,6 +9,7 @@ use crate::theme::{palette, Palette};
 use crate::ui::alpha;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{h_flex, v_flex, Icon, IconName, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
@@ -16,6 +17,24 @@ use gpui_kit::*;
 use std::time::Duration;
 use sv_core::skins::{norm_text, set_profile_background, Skin, SkinCatalog};
 use sv_core::tools::{tools, ClientStatus};
+
+/// Mientras baja la miniatura de una skin: el recuadro late suave con un círculo girando al medio.
+fn tile_loading(bg: Hsla, spin: Hsla) -> AnyElement {
+    div()
+        .size_full()
+        .rounded(px(6.))
+        .bg(bg)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(Spinner::new().color(spin).with_size(px(18.)))
+        .with_animation(
+            "tile-loading",
+            Animation::new(Duration::from_millis(1100)).repeat().with_easing(pulsating_between(0.45, 1.0)),
+            |this, v| this.opacity(v),
+        )
+        .into_any_element()
+}
 
 /// No se dibujan miles de tarjetas de una.
 const MAX_SKINS: usize = 120;
@@ -109,11 +128,15 @@ impl ToolsPanel {
         // inicial ya pedida), para medir cuánto tarda en llenarse.
         #[cfg(debug_assertions)]
         if let Ok(q) = std::env::var("SV_DEV_SKIN_SEARCH") {
-            let search = this.search.clone();
+            let (search, scroll) = (this.search.clone(), this.scroll.clone());
             window
                 .spawn(cx, async move |cx| {
                     cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
                     let _ = cx.update(|window, cx| search.update(cx, |s, cx| s.set_value(q, window, cx)));
+                    // Con la grilla ya armada se puede bajar hasta ella.
+                    cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+                    scroll.set_offset(point(px(0.), px(-5000.)));
+                    let _ = cx.update(|window, _| window.refresh());
                 })
                 .detach();
         }
@@ -255,7 +278,18 @@ impl ToolsPanel {
                 .hover(|st| st.border_color(p.cyan))
                 .when(applying, |d| d.opacity(0.5))
                 .child(match &s.tile {
-                    Some(url) => img(SharedString::from(url.clone())).w_full().h(px(90.)).rounded(px(6.)).object_fit(ObjectFit::Cover).into_any_element(),
+                    Some(url) => {
+                        let (bg, spin) = (p.surface_3, p.muted);
+                        // Con id: GPUI solo muestra el "cargando" de una imagen que tiene id.
+                        img(SharedString::from(url.clone()))
+                            .id(SharedString::from(format!("skin-img-{id}")))
+                            .w_full()
+                            .h(px(90.))
+                            .rounded(px(6.))
+                            .object_fit(ObjectFit::Cover)
+                            .with_loading(move || tile_loading(bg, spin))
+                            .into_any_element()
+                    }
                     None => div().w_full().h(px(90.)).rounded(px(6.)).bg(p.surface_3).into_any_element(),
                 })
                 .child(div().text_size(px(11.)).text_color(p.text_2).truncate().child(s.name.clone()))
