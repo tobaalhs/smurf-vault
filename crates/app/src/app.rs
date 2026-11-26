@@ -289,7 +289,11 @@ impl AppView {
             .child(brand)
             .child(div().flex_1())
             .child(
+                // Los controles de la barra toman el clic ellos mismos: si no, Windows trata la
+                // presión como "arrastrar la ventana" y el clic se pierde (pasaba con un diálogo abierto).
                 h_flex()
+                    .id("bar-actions")
+                    .occlude()
                     .gap(px(8.))
                     .pr(px(12.))
                     .children(update_chip)
