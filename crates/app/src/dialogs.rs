@@ -18,10 +18,13 @@ use sv_core::store::{AccountInput, ImportRow};
 
 pub const SERVERS: [&str; 11] = ["LAS", "LAN", "NA", "BR", "EUW", "EUNE", "OCE", "TR", "RU", "KR", "JP"];
 
-/// Los diálogos se abren bajo la barra de arriba, que sigue visible y usable. Sin el velo de la
-/// librería: la vista raíz oscurece solo lo que queda bajo la barra (ver AppView).
+/// Los diálogos se abren bajo la barra de arriba (60 px), que sigue visible y usable: se puede
+/// mover la ventana y tocar sus botones. Quedan centrados con el mismo espacio arriba y abajo
+/// (DIALOG_GAP + el margen de la librería). Sin el velo de la librería: la vista raíz oscurece solo
+/// lo que queda bajo la barra (ver AppView).
+const DIALOG_GAP: f32 = 20.;
 pub fn below_bar(d: Dialog) -> Dialog {
-    d.overlay(false).centered().p(px(22.))
+    d.overlay(false).centered().top_inset(px(60. + DIALOG_GAP)).bottom_inset(px(DIALOG_GAP)).p(px(22.))
 }
 const NO_SERVER: &str = "—";
 

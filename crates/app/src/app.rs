@@ -155,6 +155,8 @@ impl AppView {
     }
 
     fn show_lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // La barra se puede usar con un diálogo abierto: al bloquear no queda ninguno encima.
+        window.close_all_dialogs(cx);
         let lock = cx.new(|cx| LockScreen::new(self.vault.clone(), window, cx));
         self.watch_lock(&lock, window, cx);
         self.screen = Screen::Lock(lock);
@@ -220,6 +222,7 @@ impl AppView {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(p.gold_hi)
                 .cursor_pointer()
+                .occlude()
                 .hover(|s| s.bg(alpha(p.gold, 0.2)))
                 .child(Icon::new(IconName::ArrowDown).size(px(13.)))
                 .child(format!("Actualizar a v{version}"))
@@ -244,11 +247,12 @@ impl AppView {
             .text_size(px(12.))
             .text_color(fg)
             .cursor_pointer()
+            .occlude()
             .hover(|s| s.bg(p.surface_2))
             .child(div().size(px(7.)).rounded_full().bg(dot))
             .child(text)
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-            .on_click(move |_, window, cx| crate::settings_dialog::open_settings(settings_vault.clone(), window, cx));
+            .on_click(move |_, window, cx| { window.close_all_dialogs(cx); crate::settings_dialog::open_settings(settings_vault.clone(), window, cx) });
         // Herramientas encendidas: un chip cada una, que abre Herramientas.
         let config = &self.vault.read(cx).store.config;
         let tool_chip = |id: &'static str, icon: &'static str, label: &'static str, tip: &'static str, color: Hsla, vault: Entity<Vault>| {
@@ -265,10 +269,12 @@ impl AppView {
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color)
                 .cursor_pointer()
+                // Sobre la zona para arrastrar la ventana: sin esto el clic mueve la ventana.
+                .occlude()
                 .child(Icon::empty().path(assets::icon(icon)).size(px(14.)))
                 .child(label)
                 .tooltip(move |window, cx| Tooltip::new(tip).build(window, cx))
-                .on_click(move |_, window, cx| crate::tools_dialog::open_tools(vault.clone(), window, cx))
+                .on_click(move |_, window, cx| { window.close_all_dialogs(cx); crate::tools_dialog::open_tools(vault.clone(), window, cx) })
         };
         let auto_chip = config.auto_accept.then(|| {
             tool_chip("auto-chip", "zap", "Autoaceptar", "Autoaceptar partidas activado · clic para configurar", p.cyan, self.vault.clone())
@@ -305,7 +311,7 @@ impl AppView {
                             .icon(Icon::new(IconName::Plus))
                             .label("Nueva cuenta")
                             .tooltip("Inicia sesión en el Riot Client y la cuenta se guarda sola (Ctrl N)")
-                            .on_click(move |_, window, cx| dialogs::open_add(vault.clone(), window, cx))
+                            .on_click(move |_, window, cx| { window.close_all_dialogs(cx); dialogs::open_add(vault.clone(), window, cx) })
                     })
                     .child(self.menu(cx)),
             )
@@ -321,21 +327,21 @@ impl AppView {
             menu.item(
                 PopupMenuItem::new("Agregar cuenta a mano")
                     .icon(Icon::empty().path(assets::icon("pencil")))
-                    .on_click(move |_, window, cx| dialogs::open_account(manual.clone(), None, window, cx)),
+                    .on_click(move |_, window, cx| { window.close_all_dialogs(cx); dialogs::open_account(manual.clone(), None, window, cx) }),
             )
             .item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(move |_, window, cx| {
                 crate::client::refresh_riot(riot.clone(), None, window, cx)
             }))
             .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(move |_, window, cx| {
-                crate::tools_dialog::open_tools(tools.clone(), window, cx)
+                { window.close_all_dialogs(cx); crate::tools_dialog::open_tools(tools.clone(), window, cx) }
             }))
             .item(
                 PopupMenuItem::new("Importar desde txt")
                     .icon(Icon::empty().path(assets::icon("upload")))
-                    .on_click(move |_, window, cx| dialogs::open_import(import.clone(), window, cx)),
+                    .on_click(move |_, window, cx| { window.close_all_dialogs(cx); dialogs::open_import(import.clone(), window, cx) }),
             )
             .item(PopupMenuItem::new("Ajustes").icon(Icon::new(IconName::Settings)).on_click(move |_, window, cx| {
-                crate::settings_dialog::open_settings(settings.clone(), window, cx)
+                { window.close_all_dialogs(cx); crate::settings_dialog::open_settings(settings.clone(), window, cx) }
             }))
             .separator()
             .item(PopupMenuItem::new("Bloquear bóveda  (Ctrl L)").icon(Icon::empty().path(assets::icon("lock"))).on_click(move |_, window, cx| {
