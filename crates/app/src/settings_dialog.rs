@@ -1,4 +1,4 @@
-//! Diálogo de Ajustes: contraseña maestra, colores y API key de Riot. Igual que #settingsDialog de la
+//! Diálogo de Ajustes: contraseña maestra y colores (la API key de Riot tiene su diálogo, en ⋯). Igual que #settingsDialog de la
 //! versión Electron. Google Drive y las opciones de ventana (bandeja, abrir con Windows) llegan en
 //! sus fases.
 use crate::dialogs::{below_bar, dialog_title};
@@ -47,7 +47,6 @@ pub struct SettingsPanel {
     pw_new2: Entity<InputState>,
     pw_error: Option<SharedString>,
     pw_busy: bool,
-    riot_key: Entity<InputState>,
     colors: Vec<(&'static str, Entity<ColorPickerState>)>,
     _subs: Vec<Subscription>,
 }
@@ -60,8 +59,6 @@ impl SettingsPanel {
         let pw_current = masked("Contraseña actual", window, cx);
         let pw_new = masked("Nueva (mínimo 8 caracteres)", window, cx);
         let pw_new2 = masked("Repite la nueva", window, cx);
-        let key = vault.read(cx).store.data().map(|d| d.settings.riot_api_key.clone()).unwrap_or_default();
-        let riot_key = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("RGAPI-…").default_value(key));
         let theme = vault.read(cx).store.config.theme.clone();
         let mut subs = Vec::new();
         let colors: Vec<_> = THEME_FIELDS
@@ -77,7 +74,7 @@ impl SettingsPanel {
                 (key, state)
             })
             .collect();
-        Self { vault, pw_current, pw_new, pw_new2, pw_error: None, pw_busy: false, riot_key, colors, _subs: subs }
+        Self { vault, pw_current, pw_new, pw_new2, pw_error: None, pw_busy: false, colors, _subs: subs }
     }
 
     /// Cambia un color (None = el predeterminado): se ve al tiro y se guarda en este PC.
@@ -279,23 +276,6 @@ impl SettingsPanel {
                 }),
             ))
     }
-
-    /// Guarda la API key de Riot (cifrada en la bóveda).
-    fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let key = self.riot_key.read(cx).value().trim().to_string();
-        let mut patch = serde_json::Map::new();
-        patch.insert("riotApiKey".into(), key.into());
-        match self.vault.update(cx, |v, cx| v.change(cx, |s| s.save_settings(patch))) {
-            Ok(()) => {
-                window.push_notification(Notification::success("Ajustes guardados"), cx);
-                true
-            }
-            Err(e) => {
-                window.push_notification(Notification::error(e), cx);
-                false
-            }
-        }
-    }
 }
 
 fn section(icon: Icon, title: &'static str, p: &Palette) -> Div {
@@ -370,12 +350,6 @@ impl Render for SettingsPanel {
                     .child(hint("Cambia los colores a tu gusto: se ven al tiro y se guardan en este PC.", &p))
                     .child(h_flex().flex_wrap().gap(px(10.)).children(swatches)),
             )
-            .child(
-                block(&p)
-                    .child(section(Icon::empty().path(crate::assets::icon("key-round")), "API key de Riot", &p))
-                    .child(hint("Se usa para \"Actualizar todas con la API de Riot\". Queda guardada cifrada dentro de tu bóveda.", &p))
-                    .child(Input::new(&self.riot_key).mask_toggle()),
-            )
             .child(div().h(px(1.)).bg(alpha(p.border, 0.)))
     }
 }
@@ -384,19 +358,14 @@ pub fn open_settings(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
     let panel = cx.new(|cx| SettingsPanel::new(vault, window, cx));
     window.open_dialog(cx, move |dialog, _, cx| {
         let p = palette(cx);
-        let save = panel.clone();
         below_bar(dialog).title(dialog_title("Ajustes")).w(px(560.)).child(panel.clone()).footer(
             h_flex()
                 .w_full()
                 .gap(px(8.))
                 .child(div().text_size(px(12.)).text_color(p.muted).child(format!("Smurf Vault v{}", env!("CARGO_PKG_VERSION"))))
                 .child(div().flex_1())
-                .child(Button::new("settings-close").label("Cerrar").on_click(|_, window, cx| window.close_dialog(cx)))
-                .child(Button::new("settings-save").primary().label("Guardar").on_click(move |_, window, cx| {
-                    if save.update(cx, |s, cx| s.save(window, cx)) {
-                        window.close_dialog(cx);
-                    }
-                })),
+                // Todo se guarda al cambiarlo: solo hace falta cerrar.
+                .child(Button::new("settings-close").label("Cerrar").on_click(|_, window, cx| window.close_dialog(cx))),
         )
     });
     let _ = IconName::Settings;
