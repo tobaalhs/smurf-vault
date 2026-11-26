@@ -41,12 +41,10 @@ impl Paths {
     pub fn lp(&self) -> PathBuf {
         self.dir.join("lp.dat")
     }
-    /// Sesiones del Riot Client por cuenta ("Mantener sesión iniciada"), cifradas.
-    pub fn sessions(&self) -> PathBuf {
+    /// Donde las versiones anteriores guardaban sesiones del Riot Client por cuenta (ya no se usan:
+    /// se borra al abrir la bóveda).
+    pub fn old_sessions(&self) -> PathBuf {
         self.dir.join("sessions")
-    }
-    pub fn session(&self, id: &str) -> PathBuf {
-        self.sessions().join(format!("{id}.dat"))
     }
     pub fn credentials(&self) -> PathBuf {
         self.dir.join("credentials.json")

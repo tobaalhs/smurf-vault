@@ -190,7 +190,6 @@ impl MainScreen {
         let p = palette(cx);
         let frame = ui::crest_frame(a);
         let space = frame.as_ref().map(|(_, _, s)| *s).unwrap_or(10.);
-        let saved = self.sessions.get(&a.id).cloned();
         let ban = ui::ban_info(a);
         let id = a.id.clone();
         let framed = frame.is_some();
@@ -223,12 +222,8 @@ impl MainScreen {
             .flex_wrap()
             .when(!a.server.is_empty(), |d| d.child(chip(a.server.clone(), p.text_2, alpha(p.surface, 0.78), p.border_strong)))
             .when(!a.label.is_empty(), |d| d.child(chip(a.label.clone(), p.gold_hi, alpha(p.gold, 0.12), alpha(p.gold, 0.3))))
-            .child(match &saved {
-                Some(_) => chip("Sesión guardada".into(), p.ok, alpha(p.ok, 0.08), alpha(p.ok, 0.35))
-                    .child(div().size(px(6.)).rounded_full().bg(p.ok))
-                    .flex_row_reverse(),
-                None => chip("Sin sesión guardada".into(), p.gold_hi, alpha(p.gold, 0.08), alpha(p.gold, 0.35)),
-            })
+            // Sin contraseña, Jugar no puede iniciar sesión solo: se avisa.
+            .when(a.password.is_empty(), |d| d.child(chip("Sin contraseña".into(), p.gold_hi, alpha(p.gold, 0.08), alpha(p.gold, 0.35))))
             .when_some(ban, |d, (text, _, _)| {
                 d.child(chip(text, p.loss, alpha(p.loss, 0.12), alpha(p.loss, 0.4)).child(Icon::new(IconName::Ban).size(px(12.))).flex_row_reverse())
             });
@@ -491,7 +486,7 @@ impl MainScreen {
 
     fn actions(&self, a: &Account, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        let can_play = self.sessions.contains_key(&a.id) || (!a.username.is_empty() && !a.password.is_empty());
+        let can_play = !a.username.is_empty() && !a.password.is_empty();
         let vault = self.vault.read(cx);
         let (_, caption) = ui::splash_for(a, vault.store.session().map(|s| &s.history), |c| vault.game.champion(c));
         let subtle = |id: &'static str, icon: Icon, label: &'static str| {

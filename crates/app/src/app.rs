@@ -314,7 +314,7 @@ impl AppView {
                             .primary()
                             .icon(Icon::new(IconName::Plus))
                             .label("Nueva cuenta")
-                            .tooltip("Inicia sesión en el Riot Client y la cuenta se guarda sola (Ctrl N)")
+                            .tooltip("Agrega una cuenta; sus datos se pueden traer del cliente de LoL (Ctrl N)")
                             .on_click(move |_, window, cx| { window.close_all_dialogs(cx); dialogs::open_add(vault.clone(), window, cx) })
                     })
                     .child(self.menu(cx)),
@@ -326,14 +326,8 @@ impl AppView {
         let vault = self.vault.clone();
         let view = cx.entity().downgrade();
         Button::new("more").icon(Icon::new(IconName::Ellipsis)).dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            let (manual, import, riot, tools, settings, view) =
-                (vault.clone(), vault.clone(), vault.clone(), vault.clone(), vault.clone(), view.clone());
-            menu.item(
-                PopupMenuItem::new("Agregar cuenta a mano")
-                    .icon(Icon::empty().path(assets::icon("pencil")))
-                    .on_click(move |_, window, cx| { window.close_all_dialogs(cx); dialogs::open_account(manual.clone(), None, window, cx) }),
-            )
-            .item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(move |_, window, cx| {
+            let (import, riot, tools, settings, view) = (vault.clone(), vault.clone(), vault.clone(), vault.clone(), view.clone());
+            menu.item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(move |_, window, cx| {
                 crate::client::refresh_riot(riot.clone(), None, window, cx)
             }))
             .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(move |_, window, cx| {

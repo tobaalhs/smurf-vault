@@ -1,6 +1,5 @@
-//! Jugar con una cuenta: inicio de sesión por inyección (si tiene usuario y contraseña), o restaurar
-//! su sesión guardada del Riot Client; si nada de eso sirve, abre el login y escribe los datos (o deja
-//! la contraseña copiada). Igual que play() de renderer.js y switchTo/injectLogin/assistLogin de main.js.
+//! Jugar con una cuenta: inicio de sesión por inyección (si tiene usuario y contraseña); si no se
+//! puede, abre el login de Riot y escribe los datos (o deja la contraseña copiada). Igual que play() de renderer.js y switchTo/injectLogin/assistLogin de main.js.
 //!
 //! Lo lento (cerrar y abrir el cliente, la inyección) va en hilos de fondo; la guía de arriba muestra
 //! en qué paso va.
@@ -73,16 +72,8 @@ impl MainScreen {
         if auto && !acc.username.is_empty() && !acc.password.is_empty() {
             self.inject_login(acc, window, cx);
         } else {
-            self.switch_to(Some(acc), window, cx);
+            self.switch_to(acc, window, cx);
         }
-    }
-
-    /// Guarda la sesión que tiene ahora el Riot Client en su cuenta (Riot renueva los tokens) antes
-    /// de tocar el cliente.
-    fn capture_before_switch(&self, cx: &mut Context<Self>) {
-        self.vault.update(cx, |v, _| {
-            v.store.capture_current_session();
-        });
     }
 
     /// Inicio de sesión automático por inyección. Si falla, cae al login normal con autoescrito.
@@ -108,14 +99,13 @@ impl MainScreen {
                 }
                 Err(e) => {
                     // La inyección no pudo: login normal, para escribirlo o pegarlo a mano.
-                    let _ = switcher::write_session(None);
+                    switcher::sign_out();
                     let _ = switcher::launch_league();
                     ensure_league_in_background();
                     Ok(Err(e))
                 }
             }
         });
-        self.capture_before_switch(cx);
         // Los pasos van actualizando la guía.
         cx.spawn_in(window, async move |this, cx| {
             while let Some(step) = rx.next().await {
@@ -155,18 +145,15 @@ impl MainScreen {
         .detach();
     }
 
-    /// Cierra el Riot Client, deja la sesión guardada de `acc` (o ninguna, para mostrar el login) y
-    /// abre el LoL. Sin sesión guardada, ayuda con el login.
-    pub(crate) fn switch_to(&mut self, acc: Option<Account>, window: &mut Window, cx: &mut Context<Self>) {
+    /// Cierra el Riot Client, cierra su sesión (para que muestre el login), abre el LoL y ayuda a
+    /// escribir los datos de `acc`.
+    pub(crate) fn switch_to(&mut self, acc: Account, window: &mut Window, cx: &mut Context<Self>) {
         self.switching = true;
         cx.notify();
-        self.capture_before_switch(cx);
-        let files = acc.as_ref().and_then(|a| self.vault.read(cx).store.load_session(&a.id)).and_then(|v| v.as_object().cloned());
-        let restored = files.is_some();
         let work = cx.background_spawn(async move {
             switcher::check_not_busy()?;
             switcher::close_riot()?;
-            switcher::write_session(files.as_ref())?;
+            switcher::sign_out();
             switcher::launch_league()?;
             ensure_league_in_background();
             Ok::<_, String>(())
@@ -175,21 +162,13 @@ impl MainScreen {
             let result = work.await;
             this.update_in(cx, |this, window, cx| {
                 this.switching = false;
-                match (result, acc) {
-                    (Err(e), _) => window.push_notification(Notification::error(e), cx),
-                    (Ok(()), Some(acc)) if restored => {
-                        this.guide = None;
-                        window.push_notification(Notification::success(format!("Abriendo LoL con {}…", riot_id_or_user(&acc))), cx);
-                    }
-                    (Ok(()), Some(acc)) => {
+                match result {
+                    Err(e) => window.push_notification(Notification::error(e), cx),
+                    Ok(()) => {
                         let copied = if acc.password.is_empty() { "" } else { " (la contraseña está copiada: pégala con Ctrl V)" };
-                        this.guide = Some(
-                            format!("Inicia sesión con {}{copied} y marca Mantener sesión iniciada. La próxima vez entras con un clic.", acc.username)
-                                .into(),
-                        );
+                        this.guide = Some(format!("Inicia sesión con {}{copied}.", acc.username).into());
                         this.assist_login(acc, window, cx);
                     }
-                    (Ok(()), None) => {}
                 }
                 this.detect_soon(window, cx);
                 cx.notify();
@@ -199,17 +178,7 @@ impl MainScreen {
         .detach();
     }
 
-    /// "Abrir login de Riot" (agregar cuenta): el cliente sin sesión, y se espera la cuenta nueva.
-    pub(crate) fn open_riot_login(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.adding_account = true;
-        self.guide = Some(
-            "Inicia sesión en el Riot Client con la cuenta que quieres agregar y marca Mantener sesión iniciada. El LoL se abre solo y aquí te pedimos confirmarla."
-                .into(),
-        );
-        self.switch_to(None, window, cx);
-    }
-
-    /// Login sin sesión guardada. Con el autoescrito activado escribe usuario y contraseña en el
+    /// Login a mano. Con el autoescrito activado escribe usuario y contraseña en el
     /// login de Riot (por el portapapeles, nunca como argumento); si no se puede, deja la contraseña
     /// copiada para pegarla.
     fn assist_login(&mut self, acc: Account, window: &mut Window, cx: &mut Context<Self>) {

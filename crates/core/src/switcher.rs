@@ -1,11 +1,9 @@
-//! Cambio de cuenta sin escribir la contraseña: el Riot Client guarda la sesión de "Mantener sesión
-//! iniciada" en archivos locales. Se guarda una copia por cuenta y, al cambiar, se cierra el cliente,
-//! se restaura la copia de esa cuenta y se vuelve a abrir. Igual que src/switcher.js.
+//! Manejo del Riot Client para cambiar de cuenta: cerrarlo, cerrar su sesión (para que muestre el
+//! login), abrir el LoL y esperar sus ventanas.
 //!
 //! Bloqueante: se llama desde hilos de fondo.
 use crate::lcu::{lcu, powershell, Conn};
-use base64::Engine;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -37,71 +35,21 @@ pub fn busy_phase(phase: &str) -> Option<&'static str> {
     })
 }
 
-fn b64() -> base64::engine::GeneralPurpose {
-    base64::engine::general_purpose::STANDARD
-}
-
 pub fn riot_data_root() -> PathBuf {
     PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("Riot Games")
 }
 
-/// Rutas relativas (al root) de los archivos de sesión, existan o no. Con `\` como Electron, para
-/// que las sesiones guardadas por una versión sirvan en la otra.
-pub fn session_paths() -> Vec<String> {
-    SESSION_DIRS.iter().map(|d| format!("{d}\\Data\\{SESSION_FILE}")).collect()
-}
-
-/// Lee los archivos de sesión actuales: { rutaRelativa: base64 }.
-pub fn read_session() -> Map<String, Value> {
+/// Archivos donde el Riot Client recuerda la sesión (versiones viejas y nuevas del cliente).
+fn session_files() -> Vec<PathBuf> {
     let root = riot_data_root();
-    let mut files = Map::new();
-    for rel in session_paths() {
-        if let Ok(bytes) = std::fs::read(root.join(&rel)) {
-            files.insert(rel, Value::String(b64().encode(bytes)));
-        }
+    SESSION_DIRS.iter().map(|d| root.join(d).join("Data").join(SESSION_FILE)).collect()
+}
+
+/// Cierra la sesión del Riot Client (borra lo que recuerda), para que al abrirlo muestre el login.
+pub fn sign_out() {
+    for f in session_files() {
+        let _ = std::fs::remove_file(f);
     }
-    files
-}
-
-fn texts(files: &Map<String, Value>) -> impl Iterator<Item = String> + '_ {
-    files.values().filter_map(|v| v.as_str()).filter_map(|s| b64().decode(s).ok()).map(|b| String::from_utf8_lossy(&b).into_owned())
-}
-
-/// true si la sesión tiene "Mantener sesión iniciada" (refresh_token, o la cookie ssid en versiones
-/// viejas). Sin eso el cliente pide la contraseña.
-pub fn is_remembered(files: &Map<String, Value>) -> bool {
-    let re = regex::Regex::new(r"(?m)^[ \t]*refresh_token:[ \t]*\S|\bssid\b").unwrap();
-    texts(files).any(|t| re.is_match(&t))
-}
-
-/// PUUID dueño de la sesión: el campo `sub` del id_token (un JWT) que guarda el Riot Client. Solo se
-/// lee ese campo; el token no se valida ni se usa para nada más.
-pub fn session_owner(files: &Map<String, Value>) -> Option<String> {
-    let re = regex::Regex::new(r#"(?m)^[ \t]*id_token:[ \t]*"?[\w-]+\.([\w-]+)\.[\w-]*"?"#).unwrap();
-    texts(files).find_map(|t| {
-        let payload = re.captures(&t)?.get(1)?.as_str().to_string();
-        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
-        let sub = serde_json::from_slice::<Value>(&bytes).ok()?["sub"].as_str()?.to_string();
-        (!sub.is_empty()).then_some(sub)
-    })
-}
-
-/// Reemplaza la sesión del cliente por `files` (o la borra si es None, para mostrar el login).
-pub fn write_session(files: Option<&Map<String, Value>>) -> Result<(), String> {
-    let root = riot_data_root();
-    for rel in session_paths() {
-        let full = root.join(&rel);
-        match files.and_then(|f| f.get(&rel)).and_then(|v| v.as_str()) {
-            Some(content) => {
-                let bytes = b64().decode(content).map_err(|e| e.to_string())?;
-                crate::paths::write_atomic(&full, &bytes).map_err(|e| format!("No pude escribir la sesión de Riot: {e}"))?;
-            }
-            None => {
-                let _ = std::fs::remove_file(&full);
-            }
-        }
-    }
-    Ok(())
 }
 
 fn hidden(cmd: &mut std::process::Command) -> &mut std::process::Command {
@@ -283,22 +231,6 @@ pub fn send_keys(steps: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn file(text: &str) -> Map<String, Value> {
-        let mut m = Map::new();
-        m.insert(session_paths()[0].clone(), Value::String(b64().encode(text)));
-        m
-    }
-
-    #[test]
-    fn remembered_sessions_and_their_owner() {
-        assert!(is_remembered(&file("riot-login:\n  persist:\n    refresh_token: abc\n")));
-        assert!(!is_remembered(&file("refresh_token:\n")));
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"PUUID-1"}"#);
-        let text = format!("      id_token: \"aaa.{payload}.ccc\"\n");
-        assert_eq!(session_owner(&file(&text)).as_deref(), Some("PUUID-1"));
-        assert!(session_owner(&file("nada")).is_none());
-    }
 
     #[test]
     fn busy_phases() {

@@ -126,7 +126,6 @@ fn main() {
     store.persist().unwrap();
     store.save_history().unwrap();
     store.save_lp().unwrap();
-    store.save_session("a1", &json!({ "Riot Client/Data/RiotGamesPrivateSettings.yaml": "" })).unwrap();
     store.remember_lock_splashes();
     println!("bóveda de demostración en {dir} (contraseña: {PASSWORD})");
 }

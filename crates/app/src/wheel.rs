@@ -284,7 +284,8 @@ impl MainScreen {
             };
             let vault = self.vault.read(cx);
             let (splash, _) = ui::splash_for(a, vault.store.session().map(|s| &s.history), |_| String::new());
-            let saved = self.sessions.contains_key(&a.id);
+            // Punto verde: lista para Jugar (tiene usuario y contraseña).
+            let saved = !a.username.is_empty() && !a.password.is_empty();
             let r = 10. * s;
             let k = SKEW * h / 2.;
             let paint_fill = move |b: Bounds<Pixels>, _: (), window: &mut Window, _: &mut App| {

@@ -16,7 +16,6 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use serde_json::{json, Value};
 use std::cell::Cell;
-use std::collections::BTreeMap;
 use std::rc::Rc;
 use sv_core::model::Account;
 use sv_core::ranks::{best_rank, can_duo, tier_es, DUO_TIERS};
@@ -63,7 +62,6 @@ pub struct MainScreen {
     pub(crate) tab: Tab,
     pub(crate) history_mode: &'static str,
     pub(crate) progress_queue: &'static str,
-    pub(crate) sessions: BTreeMap<String, String>,
     /// Cambio de LP bajo el mouse en el gráfico de Progreso, y dónde quedó dibujado el gráfico.
     pub(crate) lp_hover: Option<usize>,
     pub(crate) chart_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -81,15 +79,12 @@ pub struct MainScreen {
     pub(crate) detecting: bool,
     pub(crate) seen_puuids: std::collections::HashSet<String>,
     pub(crate) detected: Option<sv_core::snapshot::Snapshot>,
-    /// El aviso de cuenta detectada viene de "Abrir login de Riot" (se ofrece guardarla como nueva).
-    pub(crate) detected_adding: bool,
     pub(crate) client_tasks: Vec<Task<()>>,
     /// Cambio de cuenta (switch.rs): en curso, guía de arriba con el paso actual, si se está
     /// agregando una cuenta nueva por el login, cuántas veces se encontró el cliente y la búsqueda
     /// rápida después de cambiar.
     pub(crate) switching: bool,
     pub(crate) guide: Option<SharedString>,
-    pub(crate) adding_account: bool,
     pub(crate) detect_hits: u64,
     pub(crate) detect_soon_task: Option<Task<()>>,
     _subs: Vec<Subscription>,
@@ -150,15 +145,7 @@ impl MainScreen {
         let volume_state = cx.new(|_| SliderState::new().min(0.).max(100.).step(5.).default_value((volume * 100.).round()));
 
         let subs = vec![
-            cx.observe_in(&vault, window, |this, vault, window, cx| {
-                this.refresh_sessions(cx);
-                // "Abrir login de Riot" se pide desde el diálogo de agregar, que no conoce esta pantalla.
-                let requested = vault.update(cx, |v, _| std::mem::take(&mut v.open_login_requested));
-                if requested {
-                    this.open_riot_login(window, cx);
-                }
-                cx.notify();
-            }),
+            cx.observe_in(&vault, window, |_, _, _, cx| cx.notify()),
             cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, window, cx| match ev {
                 InputEvent::Change => {
                     this.keep_selection_visible(cx);
@@ -219,7 +206,6 @@ impl MainScreen {
             tab: Tab::Summary,
             history_mode: "lol",
             progress_queue: "solo",
-            sessions: BTreeMap::new(),
             lp_hover: None,
             chart_bounds: Rc::new(Cell::new(None)),
             wheel: WheelState::default(),
@@ -230,16 +216,13 @@ impl MainScreen {
             detecting: false,
             seen_puuids: Default::default(),
             detected: None,
-            detected_adding: false,
             client_tasks: Vec::new(),
             switching: false,
             guide: None,
-            adding_account: false,
             detect_hits: 0,
             detect_soon_task: None,
             _subs: subs,
         };
-        this.refresh_sessions(cx);
         this.start_client_watch(window, cx);
         this.prefetch_images(cx);
         // Solo en desarrollo: SV_DEV_SELECT y SV_DEV_TAB eligen la cuenta y la pestaña al abrir.
@@ -253,10 +236,6 @@ impl MainScreen {
                 _ => Tab::Summary,
             };
             // SV_DEV_DETECTED simula una cuenta abierta en el cliente que no está guardada.
-            if std::env::var("SV_DEV_DETECTED").as_deref() == Ok("adding") {
-                this.detected_adding = true;
-                this.guide = Some("Escribiendo tus credenciales…".into());
-            }
             if std::env::var("SV_DEV_DETECTED").is_ok() {
                 this.detected = Some(sv_core::snapshot::Snapshot {
                     puuid: "dev".into(),
@@ -322,10 +301,6 @@ impl MainScreen {
         }
         this.focus.focus(window, cx);
         this
-    }
-
-    fn refresh_sessions(&mut self, cx: &App) {
-        self.sessions = self.vault.read(cx).store.session_index();
     }
 
     /// El orden, el filtro de dúo y el sonido se recuerdan en este PC (config.json).
@@ -575,7 +550,7 @@ impl MainScreen {
                         .text_center()
                         .text_color(p.muted)
                         .text_size(px(13.))
-                        .child("Agrega tu primera cuenta iniciando sesión en el cliente, o importa la lista que tenías en un txt."),
+                        .child("Agrega tu primera cuenta (sus datos se pueden traer del cliente de LoL) o importa la lista que tenías en un txt."),
                 )
                 .child(
                     h_flex()

@@ -75,10 +75,6 @@ impl MainScreen {
 
     fn apply_detected(&mut self, snap: Option<Snapshot>, manual: bool, expected: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(snap) = snap else {
-            // Sin el LoL abierto igual se guarda la sesión del Riot Client, si es de una cuenta conocida.
-            self.vault.update(cx, |v, _| {
-                v.store.capture_current_session();
-            });
             if manual {
                 window.push_notification(Notification::error("No encontré el cliente de LoL abierto con una sesión iniciada"), cx);
             }
@@ -86,13 +82,11 @@ impl MainScreen {
         };
         self.detect_hits += 1;
         self.guide = None;
-        let adding = std::mem::take(&mut self.adding_account);
         let name = snap.riot_id();
         let found = self.vault.read(cx).store.find_detected(&snap);
         let Some(id) = found else {
             // Una cuenta que no está guardada: se ofrece vincularla (una vez, salvo que se pida).
-            self.detected_adding = adding;
-            if manual || adding || !self.seen_puuids.contains(&snap.puuid) {
+            if manual || !self.seen_puuids.contains(&snap.puuid) {
                 self.seen_puuids.insert(snap.puuid.clone());
                 self.detected = Some(snap);
             }
@@ -106,18 +100,9 @@ impl MainScreen {
             let label = acc.map(|a| if a.label.is_empty() { a.username.clone() } else { a.label.clone() }).unwrap_or_default();
             (acc.is_some_and(|a| a.puuid.as_deref() != Some(snap.puuid.as_str())), label)
         };
-        let had_session = self.vault.read(cx).store.has_session(&id);
         if let Err(e) = self.vault.update(cx, |v, cx| v.change(cx, |s| s.link_snapshot(&id, &snap))) {
             window.push_notification(Notification::error(e), cx);
             return;
-        }
-        // Se guarda su sesión del Riot Client para entrar después con un clic.
-        let saved = self.vault.update(cx, |v, cx| v.change(cx, |s| s.capture_session(&id, &sv_core::switcher::read_session())));
-        if saved && !had_session {
-            window.push_notification(
-                Notification::success(format!("Sesión de {} guardada: la próxima vez entras con un clic", snap.game_name)),
-                cx,
-            );
         }
         if auto_linked {
             window.push_notification(Notification::success(format!("{name} reconocida y vinculada a \"{label}\"")), cx);
@@ -164,13 +149,7 @@ impl MainScreen {
     /// Vincula la cuenta detectada a una guardada (desde el diálogo "¿Qué cuenta es?").
     pub(crate) fn link_detected(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(snap) = self.detected.take() else { return };
-        let res = self.vault.update(cx, |v, cx| {
-            v.change(cx, |s| {
-                s.link_snapshot(id, &snap)?;
-                s.capture_session(id, &sv_core::switcher::read_session());
-                Ok::<_, String>(())
-            })
-        });
+        let res = self.vault.update(cx, |v, cx| v.change(cx, |s| s.link_snapshot(id, &snap)));
         match res {
             Ok(_) => window.push_notification(Notification::success("Cuenta vinculada"), cx),
             Err(e) => window.push_notification(Notification::error(e), cx),
@@ -178,33 +157,11 @@ impl MainScreen {
         self.select(id.to_string(), cx);
     }
 
-    /// Guarda la cuenta detectada como una nueva y abre su edición para completar la contraseña.
+    /// Abre Nueva cuenta ya rellenada con la cuenta detectada: se guarda al tocar Guardar.
     pub(crate) fn save_detected_as_new(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(snap) = self.detected.take() else { return };
-        let input = sv_core::store::AccountInput {
-            username: Some(snap.username.clone()),
-            game_name: Some(snap.game_name.clone()),
-            tag_line: Some(snap.tag_line.clone()),
-            server: Some(snap.server.clone()),
-            ..Default::default()
-        };
-        let res = self.vault.update(cx, |v, cx| {
-            v.change(cx, |s| {
-                let id = s.save_account(input)?;
-                s.link_snapshot(&id, &snap)?;
-                s.capture_session(&id, &sv_core::switcher::read_session());
-                Ok::<_, String>(id)
-            })
-        });
-        match res {
-            Ok(id) => {
-                self.select(id.clone(), cx);
-                let acc = self.vault.read(cx).store.data().and_then(|d| d.account(&id)).cloned();
-                window.push_notification(Notification::success("Cuenta guardada: agrégale la contraseña"), cx);
-                crate::dialogs::open_account(self.vault.clone(), acc, window, cx);
-            }
-            Err(e) => window.push_notification(Notification::error(e), cx),
-        }
+        cx.notify();
+        crate::dialogs::open_add_detected(self.vault.clone(), snap, window, cx);
     }
 }
 
@@ -236,7 +193,6 @@ impl MainScreen {
                     .child(Button::new("guide-close").ghost().small().icon(Icon::new(IconName::Close)).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.guide = None;
-                            this.adding_account = false;
                             cx.notify();
                         },
                     )))
@@ -245,8 +201,7 @@ impl MainScreen {
         }
         if let Some(snap) = &self.detected {
             let who = format!("{} · {} · nivel {}", snap.riot_id(), snap.server, snap.level.unwrap_or(0));
-            let adding = self.detected_adding;
-            let intro = if adding { "Iniciaste sesión con una cuenta nueva. ¿La guardamos?" } else { "En el cliente está abierta una cuenta sin vincular:" };
+            let intro = "Abierta en el cliente y sin guardar:";
             top.push(
                 h_flex()
                     .id("detect-banner")
@@ -269,19 +224,12 @@ impl MainScreen {
                             .child(div().text_size(px(12.)).text_color(p.text_2).child(intro))
                             .child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(who)),
                     )
-                    .when(adding, |d| {
-                        d.child(Button::new("banner-link").small().label("Es una que ya tengo").on_click(cx.listener(
-                            |this, _, window, cx| this.open_link_dialog(window, cx),
-                        )))
-                        .child(Button::new("banner-new").primary().small().label("Guardar cuenta").on_click(cx.listener(
-                            |this, _, window, cx| this.save_detected_as_new(window, cx),
-                        )))
-                    })
-                    .when(!adding, |d| {
-                        d.child(Button::new("banner-link").primary().small().label("Vincular").on_click(cx.listener(
-                            |this, _, window, cx| this.open_link_dialog(window, cx),
-                        )))
-                    })
+                    .child(Button::new("banner-link").small().label("Es una que ya tengo").on_click(cx.listener(
+                        |this, _, window, cx| this.open_link_dialog(window, cx),
+                    )))
+                    .child(Button::new("banner-new").primary().small().label("Agregar cuenta").on_click(cx.listener(
+                        |this, _, window, cx| this.save_detected_as_new(window, cx),
+                    )))
                     .child(Button::new("banner-close").ghost().small().icon(Icon::new(IconName::Close)).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.detected = None;

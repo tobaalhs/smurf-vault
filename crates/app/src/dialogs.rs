@@ -1,4 +1,4 @@
-//! Diálogos de cuentas: crear/editar (con eliminar y olvidar sesión), agregar e importar desde txt,
+//! Diálogos de cuentas: crear/editar (con eliminar y detectar del cliente) e importar desde txt,
 //! más una confirmación genérica. Igual que los <dialog> de la versión Electron.
 use crate::assets;
 use crate::state::Vault;
@@ -9,11 +9,12 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, Textar
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::select::{Select, SelectState};
 use gpui_kit::component::dialog::Dialog;
-use gpui_kit::component::{h_flex, v_flex, Icon, IndexPath, WindowExt};
+use gpui_kit::component::{h_flex, v_flex, Icon, IconName, IndexPath, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use sv_core::import::{non_empty_lines, parse_import};
 use sv_core::model::Account;
+use sv_core::snapshot::Snapshot;
 use sv_core::store::{AccountInput, ImportRow};
 
 pub const SERVERS: [&str; 11] = ["LAS", "LAN", "NA", "BR", "EUW", "EUNE", "OCE", "TR", "RU", "KR", "JP"];
@@ -89,10 +90,15 @@ pub struct AccountForm {
     notes: Entity<TextareaState>,
     server: Entity<Choice>,
     error: Option<SharedString>,
+    /// Cuenta leída del cliente con "Detectar del cliente" (o desde el aviso de cuenta detectada):
+    /// al guardar queda vinculada a ella, para reconocerla después.
+    detected: Option<Snapshot>,
+    detecting: bool,
+    detect_note: Option<SharedString>,
 }
 
 impl AccountForm {
-    fn new(vault: Entity<Vault>, acc: Option<&Account>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(vault: Entity<Vault>, acc: Option<&Account>, prefill: Option<Snapshot>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let value = |f: fn(&Account) -> &String| acc.map(|a| f(a).clone()).unwrap_or_default();
         let input = |v: String, placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder).default_value(v))
@@ -100,7 +106,7 @@ impl AccountForm {
         let label = input(value(|a| &a.label), "ej: smurf mid, cuenta principal…", window, cx);
         let username = input(value(|a| &a.username), "", window, cx);
         let password = cx.new(|cx| {
-            InputState::new(window, cx).masked(true).placeholder("Opcional con sesión guardada").default_value(value(|a| &a.password))
+            InputState::new(window, cx).masked(true).default_value(value(|a| &a.password))
         });
         let game_name = input(value(|a| &a.game_name), "Nombre (o pega Nombre#TAG)", window, cx);
         let tag_line = input(value(|a| &a.tag_line), "LAS", window, cx);
@@ -108,10 +114,84 @@ impl AccountForm {
             TextareaState::new(window, cx).rows(3).placeholder("Correo asociado, fecha de creación, ban…").default_value(value(|a| &a.notes))
         });
         let server = server_select(acc.map(|a| a.server.as_str()).unwrap_or("LAS"), window, cx);
-        // Con la cuenta ya armada se empieza por la etiqueta; si es nueva, por el usuario.
-        let first = if acc.is_some_and(|a| !a.username.is_empty()) { &label } else { &username };
+        let mut this = Self {
+            vault,
+            id: acc.map(|a| a.id.clone()),
+            label,
+            username,
+            password,
+            game_name,
+            tag_line,
+            notes,
+            server,
+            error: None,
+            detected: None,
+            detecting: false,
+            detect_note: None,
+        };
+        if let Some(snap) = prefill {
+            this.fill_from(snap, window, cx);
+        }
+        // Se empieza por lo primero que falta: el usuario, o la contraseña si el usuario ya vino del cliente.
+        let first = if this.value(&this.username, cx).is_empty() { &this.username } else { &this.password };
         first.update(cx, |s, cx| s.focus(window, cx));
-        Self { vault, id: acc.map(|a| a.id.clone()), label, username, password, game_name, tag_line, notes, server, error: None }
+        this
+    }
+
+    fn value(&self, s: &Entity<InputState>, cx: &App) -> String {
+        s.read(cx).value().to_string()
+    }
+
+    /// Lee la cuenta abierta en el cliente de LoL y rellena usuario, Riot ID y servidor.
+    fn detect(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.detecting {
+            return;
+        }
+        self.detecting = true;
+        self.error = None;
+        cx.notify();
+        let work = cx.background_spawn(async move { sv_core::lcu::lcu().current_account(true) });
+        cx.spawn_in(window, async move |this, cx| {
+            let snap = work.await;
+            this.update_in(cx, |this, window, cx| {
+                this.detecting = false;
+                match snap {
+                    None => this.error = Some("No encontré el cliente de LoL abierto con una sesión iniciada.".into()),
+                    Some(snap) => {
+                        let existing = this.vault.read(cx).store.find_detected(&snap).filter(|id| this.id.as_ref() != Some(id));
+                        let existing = existing.and_then(|id| this.vault.read(cx).store.data()?.account(&id).cloned());
+                        if let Some(a) = existing {
+                            let name = if a.label.is_empty() { a.username.clone() } else { a.label.clone() };
+                            this.error = Some(format!("{} ya está guardada en tu bóveda (\"{name}\").", snap.riot_id()).into());
+                        } else {
+                            this.fill_from(snap, window, cx);
+                            this.password.update(cx, |s, cx| s.focus(window, cx));
+                        }
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn fill_from(&mut self, snap: Snapshot, window: &mut Window, cx: &mut Context<Self>) {
+        let set = |s: &Entity<InputState>, v: &str, window: &mut Window, cx: &mut Context<Self>| {
+            if !v.is_empty() {
+                let v = v.to_string();
+                s.update(cx, |s, cx| s.set_value(v, window, cx));
+            }
+        };
+        set(&self.username, &snap.username, window, cx);
+        set(&self.game_name, &snap.game_name, window, cx);
+        set(&self.tag_line, &snap.tag_line, window, cx);
+        if let Some(ix) = SERVERS.iter().position(|s| *s == snap.server) {
+            self.server.update(cx, |s, cx| s.set_selected_index(Some(IndexPath::new(ix + 1)), window, cx));
+        }
+        let what = if snap.username.is_empty() { "Riot ID y servidor" } else { "usuario, Riot ID y servidor" };
+        self.detect_note = Some(format!("{} · {what} tomados del cliente. Falta la contraseña.", snap.riot_id()).into());
+        self.detected = Some(snap);
     }
 
     /// Guarda la cuenta. Devuelve true si se guardó (y el diálogo se puede cerrar).
@@ -120,6 +200,12 @@ impl AccountForm {
         let username = v(&self.username, cx);
         if username.trim().is_empty() {
             self.error = Some("Escribe el usuario de la cuenta".into());
+            cx.notify();
+            return false;
+        }
+        // Sin contraseña no se puede entrar con Jugar (se escribe en el login de Riot).
+        if self.id.is_none() && v(&self.password, cx).is_empty() {
+            self.error = Some("Escribe la contraseña: se usa para iniciar sesión con Jugar".into());
             cx.notify();
             return false;
         }
@@ -142,7 +228,21 @@ impl AccountForm {
         let editing = self.id.is_some();
         let before = self.id.as_ref().and_then(|id| self.vault.read(cx).store.data()?.account(id).map(|a| a.riot_id().to_lowercase()));
         let has_key = self.vault.read(cx).store.data().is_some_and(|d| !d.settings.riot_api_key.is_empty());
-        match self.vault.update(cx, |vault, cx| vault.change(cx, |s| s.save_account(input))) {
+        // Se vincula a la cuenta detectada solo si el Riot ID sigue siendo el del cliente.
+        let link = self.detected.clone().filter(|snap| {
+            input.game_name.as_deref().unwrap_or("").eq_ignore_ascii_case(&snap.game_name)
+                && input.tag_line.as_deref().unwrap_or("").eq_ignore_ascii_case(&snap.tag_line)
+        });
+        let saved = self.vault.update(cx, |vault, cx| {
+            vault.change(cx, |s| {
+                let id = s.save_account(input)?;
+                if let Some(snap) = &link {
+                    s.link_snapshot(&id, snap)?;
+                }
+                Ok::<_, String>(id)
+            })
+        });
+        match saved {
             Ok(id) => {
                 // Riot ID corregido: se busca al tiro la cuenta nueva si hay API key.
                 let after = self.vault.read(cx).store.data().and_then(|d| d.account(&id)).filter(|a| !a.game_name.is_empty() && !a.tag_line.is_empty());
@@ -168,9 +268,35 @@ impl AccountForm {
 impl Render for AccountForm {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
+        // Al agregar, lo primero es poder traer los datos de la cuenta abierta en el cliente.
+        let detect_bar = self.id.is_none().then(|| {
+            let text: SharedString = self
+                .detect_note
+                .clone()
+                .unwrap_or_else(|| "¿Tienes la cuenta abierta en el LoL? Trae su usuario, Riot ID y servidor.".into());
+            let done = self.detect_note.is_some();
+            h_flex()
+                .gap(px(10.))
+                .py(px(8.))
+                .pl(px(12.))
+                .pr(px(8.))
+                .rounded(px(8.))
+                .border_1()
+                .border_color(alpha(p.cyan, 0.25))
+                .bg(alpha(p.cyan, 0.07))
+                .child(if done { Icon::new(IconName::Check) } else { Icon::empty().path(assets::icon("gamepad-2")) }.text_color(p.cyan))
+                .child(div().flex_1().min_w_0().text_size(px(12.5)).text_color(p.text_2).child(text))
+                .child(
+                    Button::new("acc-detect")
+                        .small()
+                        .label(if done { "Volver a detectar" } else { "Detectar del cliente" })
+                        .loading(self.detecting)
+                        .on_click(cx.listener(|this, _, window, cx| this.detect(window, cx))),
+                )
+        });
         v_flex()
             .gap(px(12.))
-            .child(field("Etiqueta", Input::new(&self.label), cx))
+            .children(detect_bar)
             .child(
                 h_flex()
                     .gap(px(10.))
@@ -184,6 +310,7 @@ impl Render for AccountForm {
                     .child(div().w(px(96.)).child(field("Tag", Input::new(&self.tag_line), cx)))
                     .child(div().w(px(96.)).child(field("Servidor", Select::new(&self.server), cx))),
             )
+            .child(field("Etiqueta", Input::new(&self.label), cx))
             .child(field("Notas", Textarea::new(&self.notes), cx))
             .when_some(self.error.clone(), |d, e| d.child(div().text_size(px(13.)).text_color(p.danger).child(e)))
     }
@@ -191,13 +318,16 @@ impl Render for AccountForm {
 
 /// Abre el diálogo para crear (acc = None) o editar una cuenta.
 pub fn open_account(vault: Entity<Vault>, acc: Option<Account>, window: &mut Window, cx: &mut App) {
-    let form = cx.new(|cx| AccountForm::new(vault.clone(), acc.as_ref(), window, cx));
-    let has_session = acc.as_ref().is_some_and(|a| vault.read(cx).store.has_session(&a.id));
+    open_account_with(vault, acc, None, window, cx);
+}
+
+fn open_account_with(vault: Entity<Vault>, acc: Option<Account>, prefill: Option<Snapshot>, window: &mut Window, cx: &mut App) {
+    let form = cx.new(|cx| AccountForm::new(vault.clone(), acc.as_ref(), prefill, window, cx));
     let (id, name) = acc.as_ref().map(|a| (a.id.clone(), if a.game_name.is_empty() { a.username.clone() } else { a.game_name.clone() })).unzip();
     let title = if acc.is_some() { "Editar cuenta" } else { "Nueva cuenta" };
     window.open_dialog(cx, move |dialog, _, cx| {
-        let (form_save, vault_del, vault_forget) = (form.clone(), vault.clone(), vault.clone());
-        let (id_del, id_forget, name) = (id.clone(), id.clone(), name.clone().unwrap_or_default());
+        let (form_save, vault_del) = (form.clone(), vault.clone());
+        let (id_del, name) = (id.clone(), name.clone().unwrap_or_default());
         let danger = palette(cx).danger;
         below_bar(dialog).title(dialog_title(title)).w(px(580.)).child(form.clone()).footer(
             h_flex()
@@ -224,20 +354,6 @@ pub fn open_account(vault: Entity<Vault>, acc: Option<Account>, window: &mut Win
                         );
                     }))
                 })
-                .when(has_session, |d| {
-                    let id = id_forget.clone().unwrap_or_default();
-                    d.child(
-                        Button::new("acc-forget")
-                            .ghost()
-                            .label("Olvidar sesión")
-                            .tooltip("La próxima vez tendrás que escribir la contraseña en el cliente")
-                            .on_click(move |_, window, cx| {
-                                vault_forget.update(cx, |v, cx| v.change(cx, |s| s.delete_session(&id)));
-                                window.close_dialog(cx);
-                                window.push_notification(Notification::info("Sesión olvidada"), cx);
-                            }),
-                    )
-                })
                 .child(div().flex_1())
                 .child(Button::new("acc-cancel").label("Cancelar").on_click(|_, window, cx| window.close_dialog(cx)))
                 .child(Button::new("acc-save").primary().label("Guardar").on_click(move |_, window, cx| {
@@ -251,67 +367,15 @@ pub fn open_account(vault: Entity<Vault>, acc: Option<Account>, window: &mut Win
 
 // ---------- agregar ----------
 
-/// La forma principal de agregar: iniciar sesión en el cliente. La manual queda como alternativa.
+/// Nueva cuenta: el formulario vacío, con "Detectar del cliente" arriba para traer los datos de la
+/// cuenta abierta en el LoL.
 pub fn open_add(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
-    window.open_dialog(cx, move |dialog, _, cx| {
-        let p = palette(cx);
-        let (vault, login) = (vault.clone(), vault.clone());
-        let step = |n: &'static str, text: &'static str| {
-            h_flex()
-                .gap(px(10.))
-                .items_start()
-                .child(div().size(px(22.)).flex_none().rounded_full().bg(alpha(p.gold, 0.15)).text_color(p.gold).text_size(px(12.)).font_weight(FontWeight::BOLD).flex().items_center().justify_center().child(n))
-                .child(div().text_size(px(13.)).text_color(p.text_2).child(text))
-        };
-        below_bar(dialog)
-            .title(dialog_title("Agregar cuenta"))
-            .w(px(540.))
-            .child(
-                v_flex()
-                    .gap(px(12.))
-                    .child(div().text_size(px(13.)).text_color(p.text_2).child(
-                        "Inicia sesión una vez en el Riot Client y Smurf Vault guarda la cuenta sola. Después entras con un clic en Jugar, sin escribir la contraseña.",
-                    ))
-                    .child(step("1", "Toca Abrir login de Riot. Si el cliente está abierto, se cierra."))
-                    .child(step("2", "Inicia sesión con la cuenta y marca Mantener sesión iniciada (Stay signed in)."))
-                    .child(step("3", "El LoL se abre solo y aquí te pedimos confirmar la cuenta para guardarla."))
-                    .child(
-                        h_flex()
-                            .gap(px(8.))
-                            .p(px(10.))
-                            .rounded(px(8.))
-                            .bg(alpha(p.cyan, 0.08))
-                            .child(Icon::empty().path(assets::icon("key-round")).text_color(p.cyan))
-                            .child(div().text_size(px(12.5)).text_color(p.text_2).child(
-                                "Sin Mantener sesión iniciada la cuenta se guarda igual, pero tendrás que escribir la contraseña cada vez.",
-                            )),
-                    ),
-            )
-            .footer(
-                h_flex()
-                    .w_full()
-                    .gap(px(8.))
-                    .child(Button::new("add-manual").ghost().label("Agregar a mano").on_click(move |_, window, cx| {
-                        window.close_dialog(cx);
-                        open_account(vault.clone(), None, window, cx);
-                    }))
-                    .child(div().flex_1())
-                    .child(Button::new("add-cancel").label("Cancelar").on_click(|_, window, cx| window.close_dialog(cx)))
-                    .child(
-                        Button::new("add-login")
-                            .primary()
-                            .icon(Icon::empty().path(assets::icon("log-in")))
-                            .label("Abrir login de Riot")
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                login.update(cx, |v, cx| {
-                                    v.open_login_requested = true;
-                                    cx.notify();
-                                });
-                            }),
-                    ),
-            )
-    });
+    open_account_with(vault, None, None, window, cx);
+}
+
+/// Nueva cuenta ya rellenada con la cuenta detectada en el cliente (desde su aviso).
+pub fn open_add_detected(vault: Entity<Vault>, snap: Snapshot, window: &mut Window, cx: &mut App) {
+    open_account_with(vault, None, Some(snap), window, cx);
 }
 
 // ---------- importar ----------

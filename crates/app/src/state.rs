@@ -18,8 +18,6 @@ pub struct Vault {
     /// Hay una actualización con la API de Riot en curso (y su avance, si son varias cuentas).
     pub riot_busy: bool,
     pub riot_progress: Option<RiotProgress>,
-    /// Se pidió "Abrir login de Riot" (agregar cuenta); la pantalla principal lo atiende.
-    pub open_login_requested: bool,
     /// Servidor del control desde el celular, mientras está encendido.
     pub remote: Option<sv_core::remote::RemoteServer>,
     /// Google Drive: vinculación y subidas en segundo plano.
@@ -31,7 +29,7 @@ impl Vault {
         let store = Store::new(Default::default());
         let game = GameData::load_cache(&store.paths);
         let drive = sv_core::drive::Drive::new(store.paths.clone());
-        Self { store, game, riot_busy: false, riot_progress: None, open_login_requested: false, remote: None, drive }
+        Self { store, game, riot_busy: false, riot_progress: None, remote: None, drive }
     }
 
     /// Enciende o apaga el control desde el celular según la configuración. El código se guarda al

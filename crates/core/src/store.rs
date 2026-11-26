@@ -1,5 +1,5 @@
 //! La bóveda abierta y lo que se hace con ella: crear, desbloquear, guardar, cuentas, ajustes,
-//! contraseña maestra y sesiones guardadas del Riot Client. Reemplaza esa parte de main.js.
+//! contraseña maestra. Reemplaza esa parte de main.js.
 //!
 //! Lo lento (derivar la clave con scrypt) está en `Opened` y en `vault::*`, para que la interfaz lo
 //! haga fuera de su hilo; la `Store` solo hace lo rápido (leer y escribir archivos).
@@ -10,8 +10,7 @@ use crate::model::{Account, Ranks, VaultData};
 use crate::paths::{write_atomic, Paths};
 use crate::snapshot::Snapshot;
 use crate::vault::{self, Envelope, Key};
-use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use serde_json::{Map, Value};
 
 pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -79,8 +78,6 @@ pub struct Store {
     pub paths: Paths,
     pub config: Config,
     session: Option<Session>,
-    /// Huella de la última sesión de Riot guardada por cuenta, para no reescribir lo mismo.
-    saved_hash: std::collections::HashMap<String, u64>,
     /// Última bóveda guardada que falta subir a Google Drive.
     pending_upload: Option<Envelope>,
 }
@@ -88,7 +85,7 @@ pub struct Store {
 impl Store {
     pub fn new(paths: Paths) -> Self {
         let config = Config::load(&paths);
-        Self { paths, config, session: None, saved_hash: Default::default(), pending_upload: None }
+        Self { paths, config, session: None, pending_upload: None }
     }
 
     pub fn save_config(&self) -> Result<(), String> {
@@ -129,6 +126,8 @@ impl Store {
         let history = History::load(self.paths.history(), &o.key);
         let lp = LpLog::load(self.paths.lp(), &o.key);
         self.session = Some(Session { key: o.key, salt: o.salt, data: o.data, history, lp });
+        // Las sesiones del Riot Client que guardaban versiones anteriores ya no se usan.
+        let _ = std::fs::remove_dir_all(self.paths.old_sessions());
     }
 
     /// Guarda una bóveda recién creada y la deja abierta. Devuelve el sobre (para subirlo a Drive).
@@ -251,10 +250,8 @@ impl Store {
     }
 
     /// Cambia la clave de la bóveda (ya derivada de la contraseña nueva) y vuelve a cifrar todo lo
-    /// local: la bóveda, su copia de respaldo, el historial, el LP y las sesiones guardadas.
+    /// local: la bóveda, su copia de respaldo, el historial y el LP.
     pub fn rekey(&mut self, key: Key, salt: Vec<u8>) -> Result<Envelope, String> {
-        let sessions: Vec<(String, Value)> =
-            self.session_ids().into_iter().filter_map(|id| self.load_session(&id).map(|f| (id, f))).collect();
         {
             let s = self.need()?;
             s.key = key;
@@ -265,9 +262,6 @@ impl Store {
         std::fs::copy(self.paths.vault(), self.paths.vault_backup()).map_err(|e| e.to_string())?;
         self.save_history()?;
         self.save_lp()?;
-        for (id, files) in sessions {
-            self.save_session(&id, &files)?;
-        }
         Ok(env)
     }
 
@@ -359,12 +353,11 @@ impl Store {
         self.persist().map(|_| ())
     }
 
-    /// Borra la cuenta, su sesión guardada, su historial y su LP.
+    /// Borra la cuenta, su historial y su LP.
     pub fn delete_account(&mut self, id: &str) -> Result<(), String> {
         let s = self.need()?;
         s.data.accounts.retain(|a| a.id != id);
         let (had_history, had_lp) = (s.history.remove(id), s.lp.remove(id));
-        self.delete_session(id);
         if had_history {
             self.save_history()?;
         }
@@ -518,90 +511,6 @@ impl Store {
         self.persist().ok()?;
         Some(id)
     }
-
-    // ---------- sesiones guardadas del Riot Client ----------
-
-    /// { idCuenta: fecha en que se guardó su sesión }
-    pub fn session_index(&self) -> BTreeMap<String, String> {
-        let mut out = BTreeMap::new();
-        if let Ok(entries) = std::fs::read_dir(self.paths.sessions()) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let Some(id) = name.strip_suffix(".dat") else { continue };
-                if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
-                    let at = chrono::DateTime::<chrono::Utc>::from(modified)
-                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-                    out.insert(id.to_string(), at);
-                }
-            }
-        }
-        out
-    }
-
-    pub fn session_ids(&self) -> Vec<String> {
-        self.session_index().into_keys().collect()
-    }
-
-    pub fn has_session(&self, id: &str) -> bool {
-        self.paths.session(id).exists()
-    }
-
-    /// Archivos de sesión guardados de una cuenta ({ ruta: base64 }), o None si no hay o son de otra bóveda.
-    pub fn load_session(&self, id: &str) -> Option<Value> {
-        let s = self.session.as_ref()?;
-        let env: Envelope = serde_json::from_str(&std::fs::read_to_string(self.paths.session(id)).ok()?).ok()?;
-        vault::decrypt_with_key(&s.key, &env).ok()?.get("files").cloned()
-    }
-
-    pub fn save_session(&self, id: &str, files: &Value) -> Result<(), String> {
-        let s = self.session.as_ref().ok_or("La bóveda está bloqueada")?;
-        let env = vault::encrypt_with_key(&s.key, &s.salt, &json!({ "files": files }))?;
-        let bytes = serde_json::to_vec(&env).map_err(|e| e.to_string())?;
-        write_atomic(&self.paths.session(id), &bytes).map_err(|e| e.to_string())
-    }
-
-    pub fn delete_session(&mut self, id: &str) {
-        let _ = std::fs::remove_file(self.paths.session(id));
-        self.saved_hash.remove(id);
-    }
-
-    /// Guarda la sesión abierta en el Riot Client (`files`) como la de la cuenta `id`, si tiene
-    /// "Mantener sesión iniciada" y no es de otra cuenta. No reescribe lo mismo. true si quedó guardada.
-    pub fn capture_session(&mut self, id: &str, files: &Map<String, Value>) -> bool {
-        use std::hash::{Hash, Hasher};
-        if !crate::switcher::is_remembered(files) {
-            return false;
-        }
-        let Some(acc) = self.data().and_then(|d| d.account(id)) else { return false };
-        if crate::switcher::session_owner(files).is_some_and(|owner| !acc.owns_puuid(&owner)) {
-            return false; // sería guardarla en la cuenta equivocada
-        }
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        Value::Object(files.clone()).to_string().hash(&mut h);
-        let hash = h.finish();
-        if self.saved_hash.get(id) == Some(&hash) {
-            return true;
-        }
-        if self.save_session(id, &Value::Object(files.clone())).is_err() {
-            return false;
-        }
-        self.saved_hash.insert(id.to_string(), hash);
-        true
-    }
-
-    /// Guarda la sesión que tiene ahora el Riot Client en la cuenta dueña (según su token), aunque el
-    /// LoL esté cerrado: Riot renueva el token y la copia vieja deja de servir. Devuelve esa cuenta.
-    pub fn capture_current_session(&mut self) -> Option<String> {
-        self.session.as_ref()?;
-        let files = crate::switcher::read_session();
-        if !crate::switcher::is_remembered(&files) {
-            return None;
-        }
-        let owner = crate::switcher::session_owner(&files)?;
-        let id = self.data()?.accounts.iter().find(|a| a.owns_puuid(&owner))?.id.clone();
-        self.capture_session(&id, &files);
-        Some(id)
-    }
 }
 
 #[cfg(test)]
@@ -652,20 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn rekey_reencrypts_vault_and_sessions() {
-        let mut store = temp_store("rekey");
-        store.finish_create(Opened::new_vault("clave-vieja").unwrap()).unwrap();
-        let id = store.save_account(AccountInput { username: Some("u".into()), ..Default::default() }).unwrap();
-        store.save_session(&id, &json!({ "a.yaml": "QUJD" })).unwrap();
-        let (key, salt) = vault::create_key("clave-nueva").unwrap();
-        store.rekey(key, salt).unwrap();
-        store.lock();
-        unlock(&mut store, "clave-nueva").unwrap();
-        assert_eq!(store.load_session(&id).unwrap()["a.yaml"], "QUJD");
-        let _ = std::fs::remove_dir_all(&store.paths.dir);
-    }
-
-    #[test]
     fn detected_account_is_found_linked_and_updated() {
         use crate::model::Rank;
         use crate::snapshot::{RankUpdates, Snapshot};
@@ -701,19 +596,6 @@ mod tests {
         let partial = Snapshot { ranks: RankUpdates::default(), ..snap };
         store.link_snapshot(&b, &partial).unwrap();
         assert_eq!(store.data().unwrap().account(&b).unwrap().ranks.solo.as_ref().unwrap().tier, "GOLD");
-        let _ = std::fs::remove_dir_all(&store.paths.dir);
-    }
-
-    #[test]
-    fn deleting_an_account_removes_its_session() {
-        let mut store = temp_store("delete");
-        store.finish_create(Opened::new_vault("clave-segura").unwrap()).unwrap();
-        let id = store.save_account(AccountInput { username: Some("u".into()), ..Default::default() }).unwrap();
-        store.save_session(&id, &json!({})).unwrap();
-        assert!(store.has_session(&id));
-        store.delete_account(&id).unwrap();
-        assert!(!store.has_session(&id));
-        assert!(store.data().unwrap().accounts.is_empty());
         let _ = std::fs::remove_dir_all(&store.paths.dir);
     }
 }
