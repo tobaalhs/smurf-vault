@@ -23,7 +23,7 @@ const THEME_FIELDS: [(&str, &str, u32, &str); 10] = [
     ("muted", "Texto de ayuda", 0x7d8796, "Textos chicos: explicaciones, fechas, etiquetas"),
     ("gold", "Botón Jugar y destacados", 0xd6b36a, "Botones principales (Jugar, Nueva cuenta), estrellas de favoritas y la cuenta seleccionada"),
     ("cyan", "Interruptores y enlaces", 0x1fd6d0, "Interruptores encendidos, enlaces, íconos de datos y el botón Iniciar sesión"),
-    ("ok", "LP ganados y éxito", 0x3ccf8e, "LP ganados, barras de winrate sobre 50%, sesión guardada y mensajes de éxito"),
+    ("ok", "LP ganados y éxito", 0x3ccf8e, "LP ganados, barras de winrate sobre 50%, cuentas listas para Jugar y mensajes de éxito"),
     ("danger", "Errores", 0xf06a5f, "Mensajes de error y botones para eliminar"),
     ("win", "Victorias", 0x5b9cf2, "Victorias en el historial de LoL"),
     ("loss", "Derrotas y LP perdidos", 0xe84057, "Derrotas en el historial y LP perdidos"),
@@ -327,10 +327,9 @@ impl Render for SettingsPanel {
                 .child(div().p(px(2.)).rounded(px(6.)).border_1().border_color(p.border_strong).child(ColorPicker::new(state).small()))
                 .child(div().text_size(px(13.)).text_color(p.text_2).child(label))
         });
-        let max_h = f32::from(window.viewport_size().height) - 260.;
         v_flex()
             .id("settings-scroll")
-            .max_h(px(max_h.max(240.)))
+            .max_h(crate::dialogs::body_max_h(window, true))
             .overflow_y_scroll()
             .pr(px(4.))
             .gap(px(12.))

@@ -27,6 +27,16 @@ const DIALOG_GAP: f32 = 20.;
 pub fn below_bar(d: Dialog) -> Dialog {
     d.overlay(false).centered().top_inset(px(60. + DIALOG_GAP)).bottom_inset(px(DIALOG_GAP)).p(px(22.))
 }
+/// Alto máximo del contenido con scroll propio de un diálogo (Herramientas, Ajustes) para que quepa
+/// entero: el diálogo mide como mucho la ventana menos la barra, los espacios de arriba y abajo y el
+/// margen de la librería (16 px por lado); adentro van el relleno (22 + 22), el título con su
+/// separación y, si hay, el pie con sus botones.
+pub fn body_max_h(window: &Window, footer: bool) -> Pixels {
+    let dialog = f32::from(window.viewport_size().height) - (60. + DIALOG_GAP) - DIALOG_GAP - 2. * 16.;
+    let chrome = 22. + 28. + 8. + 22. + if footer { 22. + 32. } else { 0. };
+    px((dialog - chrome).max(160.))
+}
+
 const NO_SERVER: &str = "—";
 
 type Choice = SelectState<Vec<SharedString>>;

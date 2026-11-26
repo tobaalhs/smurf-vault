@@ -221,7 +221,7 @@ pub fn crest_frame(a: &Account) -> Option<(SharedString, Bounds<Pixels>, f32)> {
     Some((format!("images/wings/{tier}.webp").into(), bounds, space))
 }
 
-/// Chip chico de texto (servidor, etiqueta, sesión guardada…).
+/// Chip chico de texto (servidor, etiqueta, sin contraseña…).
 pub fn chip(text: impl Into<SharedString>, fg: Hsla, bg: Hsla, border: Hsla) -> Div {
     div()
         .flex()

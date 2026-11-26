@@ -373,11 +373,10 @@ impl Render for ToolsPanel {
                 entity.update(cx, |this, cx| this.set_config(cx, |c| f(c, v))).ok();
             })
         };
-        let max_h = f32::from(window.viewport_size().height) - 190.;
         v_flex()
             .id("tools-scroll")
             .track_scroll(&self.scroll)
-            .max_h(px(max_h.max(240.)))
+            .max_h(crate::dialogs::body_max_h(window, false))
             .overflow_y_scroll()
             .pr(px(4.))
             .gap(px(12.))
@@ -403,7 +402,7 @@ impl Render for ToolsPanel {
                     .gap(px(8.))
                     .child("Inicio de sesión automático")
                     .child(div().px(px(6.)).rounded(px(5.)).bg(p.surface_3).text_size(px(10.5)).text_color(p.text_2).child("Experimental")),
-                "Al pulsar Jugar, Smurf Vault inicia sesión por ti: entra usuario y contraseña directamente en el login de Riot. Si Riot pide verificación o captcha, se abre su ventana para que lo termines. Si lo apagas, se vuelve al modo anterior (restaurar la sesión guardada o copiar la contraseña).",
+                "Al pulsar Jugar, Smurf Vault inicia sesión por ti: entra usuario y contraseña directamente en el login de Riot. Si Riot pide verificación o captcha, se abre su ventana para que lo termines. Si lo apagas, Jugar abre el login de Riot y te deja la contraseña copiada para pegarla.",
                 Some(switch("tool-autotype", c.auto_type, |c, v| c.auto_type = v)),
                 None,
                 &p,
