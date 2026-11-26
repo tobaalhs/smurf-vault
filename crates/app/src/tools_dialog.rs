@@ -9,7 +9,11 @@ use crate::theme::{palette, Palette};
 use crate::ui::alpha;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
+
+/// Alto de la caja de skins de Fondo de perfil: dos filas y media (se ve que hay más abajo).
+const SKINS_BOX_H: f32 = 330.;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{h_flex, v_flex, Icon, IconName, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
@@ -286,7 +290,18 @@ impl ToolsPanel {
         });
         v_flex()
             .gap(px(8.))
-            .child(h_flex().flex_wrap().gap(px(8.)).children(cards))
+            // Las skins van en su propia caja con scroll, para que Herramientas no quede tan larga.
+            .child(
+                div()
+                    .id("skins-grid")
+                    .h(px(SKINS_BOX_H))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(p.border)
+                    .bg(p.surface)
+                    .overflow_y_scrollbar()
+                    .child(h_flex().flex_wrap().gap(px(8.)).p(px(8.)).pr(px(12.)).children(cards)),
+            )
             .child(note_text(note, &p))
     }
 }
@@ -416,5 +431,5 @@ impl Render for ToolsPanel {
 
 pub fn open_tools(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
     let panel = cx.new(|cx| ToolsPanel::new(vault, window, cx));
-    window.open_dialog(cx, move |dialog, _, _| below_bar(dialog).title(dialog_title("Herramientas")).w(px(616.)).child(panel.clone()));
+    window.open_dialog(cx, move |dialog, _, _| below_bar(dialog).title(dialog_title("Herramientas")).w(px(644.)).child(panel.clone()));
 }
