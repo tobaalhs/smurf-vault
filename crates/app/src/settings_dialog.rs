@@ -310,11 +310,12 @@ fn hint(text: &'static str, p: &Palette) -> Div {
 }
 
 fn block(p: &Palette) -> Div {
-    v_flex().gap(px(10.)).p(px(14.)).rounded(px(12.)).border_1().border_color(p.border).bg(p.bg)
+    // flex_none: dentro de la zona con scroll no se achica (si no, el scroll no llega al final).
+    v_flex().flex_none().gap(px(10.)).p(px(14.)).rounded(px(12.)).border_1().border_color(p.border).bg(p.bg)
 }
 
 impl Render for SettingsPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let customized = !self.vault.read(cx).store.config.theme.is_empty();
         let swatches = self.colors.iter().map(|(key, state)| {
@@ -327,10 +328,8 @@ impl Render for SettingsPanel {
                 .child(div().p(px(2.)).rounded(px(6.)).border_1().border_color(p.border_strong).child(ColorPicker::new(state).small()))
                 .child(div().text_size(px(13.)).text_color(p.text_2).child(label))
         });
+        // Sin scroll propio: lo baja el diálogo, que tiene su barra (una sola zona con scroll).
         v_flex()
-            .id("settings-scroll")
-            .max_h(crate::dialogs::body_max_h(window, true))
-            .overflow_y_scroll()
             .pr(px(4.))
             .gap(px(12.))
             .child(self.google_block(cx))

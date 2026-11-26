@@ -59,7 +59,6 @@ pub struct ToolsPanel {
     remote: Option<sv_core::remote::RemoteStatus>,
     remote_qr: Option<(String, Vec<bool>, usize)>,
     remote_error: Option<SharedString>,
-    scroll: ScrollHandle,
     _poll: Task<()>,
     _sub: Subscription,
 }
@@ -114,29 +113,19 @@ impl ToolsPanel {
             remote: None,
             remote_qr: None,
             remote_error: None,
-            scroll: ScrollHandle::new(),
             _poll: poll,
             _sub: sub,
         };
         this.refresh_remote(cx);
-        // Solo en desarrollo: SV_DEV_SCROLL baja el diálogo (para revisar las secciones de abajo).
-        #[cfg(debug_assertions)]
-        if let Some(y) = std::env::var("SV_DEV_SCROLL").ok().and_then(|v| v.parse::<f32>().ok()) {
-            this.scroll.set_offset(point(px(0.), px(-y)));
-        }
         // Solo en desarrollo: SV_DEV_SKIN_SEARCH busca esa skin 1,5 s después de abrir (con la grilla
         // inicial ya pedida), para medir cuánto tarda en llenarse.
         #[cfg(debug_assertions)]
         if let Ok(q) = std::env::var("SV_DEV_SKIN_SEARCH") {
-            let (search, scroll) = (this.search.clone(), this.scroll.clone());
+            let search = this.search.clone();
             window
                 .spawn(cx, async move |cx| {
                     cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
                     let _ = cx.update(|window, cx| search.update(cx, |s, cx| s.set_value(q, window, cx)));
-                    // Con la grilla ya armada se puede bajar hasta ella.
-                    cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
-                    scroll.set_offset(point(px(0.), px(-5000.)));
-                    let _ = cx.update(|window, _| window.refresh());
                 })
                 .detach();
         }
@@ -308,7 +297,9 @@ fn note_text(text: impl Into<SharedString>, p: &Palette) -> Div {
 
 /// Una herramienta: ícono, título, explicación y su interruptor; opcionalmente un cuerpo abajo.
 fn tool(icon: Icon, title: impl IntoElement, hint: &'static str, toggle: Option<Switch>, body: Option<AnyElement>, p: &Palette) -> Div {
+    // flex_none: dentro de la zona con scroll no se achica (si no, el scroll no llega al final).
     v_flex()
+        .flex_none()
         .p(px(14.))
         .rounded(px(12.))
         .border_1()
@@ -333,7 +324,7 @@ fn tool(icon: Icon, title: impl IntoElement, hint: &'static str, toggle: Option<
 }
 
 impl Render for ToolsPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let c = self.vault.read(cx).store.config.clone();
         let status = tools().client_status();
@@ -373,11 +364,8 @@ impl Render for ToolsPanel {
                 entity.update(cx, |this, cx| this.set_config(cx, |c| f(c, v))).ok();
             })
         };
+        // Sin scroll propio: lo baja el diálogo, que tiene su barra (una sola zona con scroll).
         v_flex()
-            .id("tools-scroll")
-            .track_scroll(&self.scroll)
-            .max_h(crate::dialogs::body_max_h(window, false))
-            .overflow_y_scroll()
             .pr(px(4.))
             .gap(px(12.))
             .child(tool(
