@@ -326,9 +326,13 @@ impl AppView {
         let vault = self.vault.clone();
         let view = cx.entity().downgrade();
         Button::new("more").icon(Icon::new(IconName::Ellipsis)).dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
-            let (import, riot, tools, settings, view) = (vault.clone(), vault.clone(), vault.clone(), vault.clone(), view.clone());
+            let (import, riot, key, tools, settings, view) = (vault.clone(), vault.clone(), vault.clone(), vault.clone(), vault.clone(), view.clone());
             menu.item(PopupMenuItem::new("Actualizar todas con la API de Riot").icon(Icon::new(IconName::RefreshCw)).on_click(move |_, window, cx| {
                 crate::client::refresh_riot(riot.clone(), None, window, cx)
+            }))
+            .item(PopupMenuItem::new("API key de Riot").icon(Icon::empty().path(assets::icon("key-round"))).on_click(move |_, window, cx| {
+                window.close_all_dialogs(cx);
+                crate::dialogs::open_riot_key(key.clone(), None, false, window, cx)
             }))
             .item(PopupMenuItem::new("Herramientas").icon(Icon::empty().path(assets::icon("wrench"))).on_click(move |_, window, cx| {
                 { window.close_all_dialogs(cx); crate::tools_dialog::open_tools(tools.clone(), window, cx) }

@@ -283,7 +283,8 @@ impl MainScreen {
                                     "account" => crate::dialogs::open_account(vault, acc, window, cx),
                                     "add" => crate::dialogs::open_add(vault, window, cx),
                                     "import" => crate::dialogs::open_import(vault, window, cx),
-                                    "riotkey" => crate::dialogs::open_riot_key(vault, None, window, cx),
+                                    "riotkey" => crate::dialogs::open_riot_key(vault, None, false, window, cx),
+                                    "riotkey-expired" => crate::dialogs::open_riot_key(vault, None, true, window, cx),
                                     "tools" => crate::tools_dialog::open_tools(vault, window, cx),
                                     "settings" => crate::settings_dialog::open_settings(vault, window, cx),
                                     _ => {}

@@ -65,6 +65,8 @@ impl std::fmt::Display for RiotError {
     }
 }
 
+const INVALID_KEY: &str = "API key de Riot inválida o caducada (las de desarrollo duran 24 h)";
+
 struct Api<'a> {
     key: &'a str,
     agent: ureq::Agent,
@@ -79,7 +81,7 @@ impl Api<'_> {
                 Ok(r) => return r.into_json().map(Some).map_err(|e| RiotError::Other(e.to_string())),
                 Err(ureq::Error::Status(404, _)) => return Ok(None),
                 Err(ureq::Error::Status(401 | 403, _)) => {
-                    return Err(RiotError::Other("API key de Riot inválida o caducada (las de desarrollo duran 24 h)".into()))
+                    return Err(RiotError::Other(INVALID_KEY.into()))
                 }
                 Err(ureq::Error::Status(429, r)) => {
                     if attempt == 3 {
@@ -168,6 +170,26 @@ fn details(api: &Api, srv: &Server, puuid: &str) -> Result<Details, RiotError> {
         _ => None,
     };
     Ok(Details { summoner, entries, tft_entries: tft_entries.ok(), last_match, last_tft, mastery })
+}
+
+/// Resultado de probar la API key antes de actualizar cuentas.
+#[derive(Debug, PartialEq)]
+pub enum KeyCheck {
+    Valid,
+    /// Riot la rechazó (401/403): inválida o caducada.
+    Invalid,
+    /// No se pudo saber (sin internet, Riot caído...): mensaje para mostrar.
+    Unreachable(String),
+}
+
+/// Prueba la API key con una consulta liviana (el estado del servidor de LAS), sin tocar ninguna cuenta.
+pub fn check_key(api_key: &str) -> KeyCheck {
+    let api = Api { key: api_key, agent: ureq::AgentBuilder::new().timeout(Duration::from_secs(10)).build() };
+    match api.call("la2", "/lol/status/v4/platform-data", "el estado del servidor") {
+        Ok(_) => KeyCheck::Valid,
+        Err(RiotError::Other(m)) if m == INVALID_KEY => KeyCheck::Invalid,
+        Err(e) => KeyCheck::Unreachable(e.to_string()),
+    }
 }
 
 /// Actualiza una cuenta con su PUUID o, si no lo tiene, con su Riot ID (Nombre#TAG).

@@ -374,9 +374,21 @@ impl MainScreen {
 
 /// Actualiza con la API de Riot las cuentas `ids` (todas si es None). Sin API key, la pide primero.
 pub fn refresh_riot(vault: Entity<Vault>, ids: Option<Vec<String>>, window: &mut Window, cx: &mut App) {
+    refresh_riot_with(vault, ids, false, window, cx);
+}
+
+/// Después de guardar una cuenta con Riot ID nuevo: si no hay key o no sirve, no se insiste (solo
+/// un aviso); la cuenta igual quedó guardada.
+pub fn refresh_riot_quiet(vault: Entity<Vault>, id: String, window: &mut Window, cx: &mut App) {
+    refresh_riot_with(vault, Some(vec![id]), true, window, cx);
+}
+
+fn refresh_riot_with(vault: Entity<Vault>, ids: Option<Vec<String>>, quiet: bool, window: &mut Window, cx: &mut App) {
     let key = vault.read(cx).store.data().map(|d| d.settings.riot_api_key.clone()).unwrap_or_default();
     if key.is_empty() {
-        crate::dialogs::open_riot_key(vault, ids, window, cx);
+        if !quiet {
+            crate::dialogs::open_riot_key(vault, ids, false, window, cx);
+        }
         return;
     }
     if vault.read(cx).riot_busy {
@@ -399,6 +411,31 @@ pub fn refresh_riot(vault: Entity<Vault>, ids: Option<Vec<String>>, window: &mut
     });
     window
         .spawn(cx, async move |cx| {
+            // Primero se prueba la key: si no sirve no se toca ninguna cuenta (y no llueven errores).
+            let check_key = key.clone();
+            let check = cx.background_executor().spawn(async move { sv_core::riot::check_key(&check_key) }).await;
+            if check != sv_core::riot::KeyCheck::Valid {
+                cx.update(|window, cx| {
+                    vault.update(cx, |v, cx| {
+                        v.riot_busy = false;
+                        v.riot_progress = None;
+                        cx.notify();
+                    });
+                    match check {
+                        sv_core::riot::KeyCheck::Invalid if quiet => window.push_notification(
+                            Notification::info("No se buscó el rango: tu API key de Riot caducó. Cámbiala en ⋯ › API key de Riot."),
+                            cx,
+                        ),
+                        sv_core::riot::KeyCheck::Invalid => crate::dialogs::open_riot_key(vault.clone(), ids.clone(), true, window, cx),
+                        sv_core::riot::KeyCheck::Unreachable(e) if !quiet => {
+                            window.push_notification(Notification::error(format!("No se actualizó ninguna cuenta: {e}")), cx)
+                        }
+                        _ => {}
+                    }
+                })
+                .ok();
+                return;
+            }
             let mut errors: Vec<String> = Vec::new();
             for (i, acc) in targets.into_iter().enumerate() {
                 let name = acc.display_name();

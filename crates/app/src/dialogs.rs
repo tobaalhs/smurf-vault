@@ -250,7 +250,7 @@ impl AccountForm {
                 if changed && has_key {
                     window.push_notification(Notification::info("Riot ID cambiado, buscando la cuenta…"), cx);
                     let vault = self.vault.clone();
-                    window.defer(cx, move |window, cx| crate::client::refresh_riot(vault, Some(vec![id]), window, cx));
+                    window.defer(cx, move |window, cx| crate::client::refresh_riot_quiet(vault, id, window, cx));
                 } else {
                     window.push_notification(Notification::success(if editing { "Cambios guardados" } else { "Cuenta agregada" }), cx);
                 }
@@ -465,8 +465,11 @@ pub fn open_import(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
 // ---------- API key de Riot ----------
 
 /// Pide la API key de Riot y, al guardarla, sigue con la actualización que la necesitaba.
-pub fn open_riot_key(vault: Entity<Vault>, ids: Option<Vec<String>>, window: &mut Window, cx: &mut App) {
-    let key = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"));
+/// Pide (o cambia) la API key de Riot y después actualiza `ids` (todas si es None). `expired`: la key
+/// guardada fue rechazada por Riot.
+pub fn open_riot_key(vault: Entity<Vault>, ids: Option<Vec<String>>, expired: bool, window: &mut Window, cx: &mut App) {
+    let current = vault.read(cx).store.data().map(|d| d.settings.riot_api_key.clone()).unwrap_or_default();
+    let key = cx.new(|cx| InputState::new(window, cx).masked(true).placeholder("RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").default_value(current));
     key.update(cx, |s, cx| s.focus(window, cx));
     window.open_dialog(cx, move |dialog, _, cx| {
         let p = palette(cx);
@@ -479,13 +482,28 @@ pub fn open_riot_key(vault: Entity<Vault>, ids: Option<Vec<String>>, window: &mu
                 .child(text.flex_1().min_w_0().text_size(px(13.)).text_color(p.text_2))
         };
         below_bar(dialog)
-            .title(dialog_title("Actualizar rangos sin abrir el juego"))
+            .title(dialog_title(if expired { "Tu API key de Riot caducó" } else { "API key de Riot" }))
             .w(px(540.))
             .child(
                 v_flex()
                     .gap(px(12.))
+                    .when(expired, |d| {
+                        d.child(
+                            h_flex()
+                                .gap(px(8.))
+                                .p(px(10.))
+                                .rounded(px(8.))
+                                .bg(alpha(p.danger, 0.1))
+                                .border_1()
+                                .border_color(alpha(p.danger, 0.3))
+                                .child(Icon::new(IconName::CircleX).text_color(p.danger))
+                                .child(div().flex_1().min_w_0().text_size(px(12.5)).text_color(p.text).child(
+                                    "Riot rechazó la key guardada, así que no se actualizó ninguna cuenta. Pega una nueva para seguir.",
+                                )),
+                        )
+                    })
                     .child(div().text_size(px(13.)).text_color(p.text_2).child(
-                        "Para consultar todas tus cuentas a la vez, Smurf Vault usa la API oficial de Riot, que pide una API key gratuita.",
+                        "Para consultar todas tus cuentas a la vez sin abrir el juego, Smurf Vault usa la API oficial de Riot, que pide una API key gratuita.",
                     ))
                     .child(step(
                         "1",
