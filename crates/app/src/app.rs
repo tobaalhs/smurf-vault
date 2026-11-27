@@ -392,8 +392,6 @@ impl AppView {
     fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let o = opacity(cx);
-        let config = self.vault.read(cx).store.config.clone();
-        let active_tools = [config.auto_accept, config.appear_offline, config.remote_enabled].iter().filter(|on| **on).count();
         let item = |id: &'static str, icon: Icon, label: &'static str, active: bool, badge: Option<usize>| {
             div()
                 .id(id)
@@ -453,7 +451,7 @@ impl AppView {
             .bg(alpha(p.surface, 0.72 * o))
             .child(item("nav-accounts", Icon::empty().path(assets::icon("users")), "Cuentas", self.page == Page::Accounts, None).on_click(nav(Page::Accounts)))
             .child(
-                item("nav-tools", Icon::empty().path(assets::icon("wrench")), "Herramientas", self.page == Page::Tools, Some(active_tools))
+                item("nav-tools", Icon::empty().path(assets::icon("wrench")), "Herramientas", self.page == Page::Tools, None)
                     .on_click(nav(Page::Tools)),
             )
             .child(item("nav-settings", Icon::empty().path(assets::icon("settings")), "Ajustes", self.page == Page::Settings, None).on_click(nav(Page::Settings)))
