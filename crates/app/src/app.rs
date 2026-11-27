@@ -1,6 +1,6 @@
 //! Vista raíz: la barra de título propia (la ventana no usa la de Windows) y la pantalla actual,
 //! bloqueo o principal. La principal tiene una barra lateral angosta, solo con íconos (Cuentas,
-//! Herramientas, Ajustes), y arriba el buscador que abre la paleta de comandos (Ctrl K).
+//! Herramientas, Ajustes).
 use crate::assets;
 use crate::lock::{LockEvent, LockScreen};
 use crate::main_screen::MainScreen;
@@ -262,14 +262,6 @@ impl AppView {
         cx.notify();
     }
 
-    fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let main = match &self.screen {
-            Screen::Main(main, _) => Some(main.clone()),
-            Screen::Lock(_) => return,
-        };
-        crate::palette::open(cx.entity().downgrade(), self.vault.clone(), main, window, cx);
-    }
-
     /// El ícono de la bandeja existe solo si al cerrar la app sigue en segundo plano.
     fn sync_tray(&mut self, cx: &App) {
         let wanted = self.vault.read(cx).store.config.close_to_tray;
@@ -287,19 +279,6 @@ impl AppView {
         main.update(cx, |m, _| m.bg = Some(bg.clone()));
         self.screen = Screen::Main(main, bg);
         cx.notify();
-        // Solo en desarrollo: SV_DEV_PALETTE abre la paleta con ese texto al desbloquear.
-        #[cfg(debug_assertions)]
-        if let Ok(q) = std::env::var("SV_DEV_PALETTE") {
-            cx.spawn_in(window, async move |this, cx| {
-                cx.background_executor().timer(std::time::Duration::from_millis(1200)).await;
-                this.update_in(cx, |this, window, cx| {
-                    this.open_palette(window, cx);
-                    let _ = &q;
-                })
-                .ok();
-            })
-            .detach();
-        }
     }
 
     pub fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -315,25 +294,6 @@ impl AppView {
             .gap(px(10.))
             .child(img(assets::logo()).size(px(30.)).rounded(px(8.)))
             .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"));
-        // Buscador: abre la paleta de comandos.
-        let search = h_flex()
-            .id("palette-trigger")
-            .occlude()
-            .w(px(380.))
-            .h(px(36.))
-            .ml(px(18.))
-            .px(px(12.))
-            .gap(px(10.))
-            .rounded(px(9.))
-            .border_1()
-            .border_color(p.border_strong)
-            .bg(alpha(p.bg, 0.6 * o))
-            .cursor_pointer()
-            .hover(|s| s.border_color(alpha(p.text, 0.25)))
-            .child(Icon::new(IconName::Search).size(px(15.)).text_color(p.muted))
-            .child(div().flex_1().text_size(px(13.)).text_color(p.muted).child("Buscar cuenta o acción…"))
-            .child(div().px(px(6.)).py(px(1.)).rounded(px(5.)).border_1().border_color(p.border_strong).text_size(px(11.)).text_color(p.muted).child("Ctrl K"))
-            .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx)));
         // Actualización descargada: clic para reiniciar e instalarla (si no, se instala al cerrar).
         let update_chip = crate::desktop::pending_update_version().map(|version| {
             h_flex()
@@ -402,7 +362,7 @@ impl AppView {
             .h(px(60.))
             .bg(alpha(p.surface, 0.9 * o))
             .border_color(p.border)
-            .child(h_flex().id("bar-left").occlude().child(brand).child(search))
+            .child(brand)
             .child(div().flex_1())
             .child(
                 // Los controles de la barra toman el clic ellos mismos: si no, Windows trata la
@@ -510,8 +470,7 @@ impl AppView {
             )
     }
 
-    /// Atajos de la pantalla principal: Ctrl+L bloquea, Ctrl+N agrega una cuenta y Ctrl+K abre la
-    /// paleta.
+    /// Atajos de la pantalla principal: Ctrl+L bloquea y Ctrl+N agrega una cuenta.
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !ev.keystroke.modifiers.control || !matches!(self.screen, Screen::Main(_, _)) {
             return;
@@ -519,7 +478,6 @@ impl AppView {
         match ev.keystroke.key.as_str() {
             "l" => self.lock(window, cx),
             "n" => dialogs::open_add(self.vault.clone(), window, cx),
-            "k" => self.open_palette(window, cx),
             _ => return,
         }
         cx.stop_propagation();

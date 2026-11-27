@@ -11,7 +11,6 @@ mod google;
 mod http;
 mod lock;
 mod main_screen;
-mod palette;
 mod settings_dialog;
 mod sounds;
 mod stage_bg;
