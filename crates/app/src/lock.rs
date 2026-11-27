@@ -283,7 +283,7 @@ impl Render for LockScreen {
                 )
             });
 
-        let o = crate::app::opacity(cx);
+        let o = crate::app::content_opacity();
         div()
             .size_full()
             .relative()

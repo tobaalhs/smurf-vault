@@ -26,6 +26,8 @@ pub struct Config {
     pub lock_skins: Vec<i64>,
     /// Transparencia de la ventana en %, para ver el escritorio detrás (0 = opaca).
     pub translucency: u32,
+    /// La transparencia solo en las barras (arriba y lateral); el contenido queda opaco.
+    pub translucent_bars_only: bool,
     /// Campos que esta versión no conoce: se conservan tal cual al guardar.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -45,6 +47,7 @@ impl Default for Config {
             remote_token: None,
             lock_skins: Vec::new(),
             translucency: 0,
+            translucent_bars_only: false,
             extra: Map::new(),
         }
     }

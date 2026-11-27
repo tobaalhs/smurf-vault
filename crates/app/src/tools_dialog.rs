@@ -319,7 +319,7 @@ fn tool(icon: Icon, title: impl IntoElement, hint: &'static str, toggle: Option<
         .rounded(px(12.))
         .border_1()
         .border_color(p.border)
-        .bg(p.bg)
+        .bg(crate::app::card_bg(p))
         .child(
             h_flex()
                 .items_start()

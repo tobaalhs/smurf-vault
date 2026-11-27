@@ -83,7 +83,10 @@ impl Render for StageBg {
         self.advance(window);
         let (splash, tier, empty) = self.main.upgrade().map(|m| m.read(cx).bg_scene(cx)).unwrap_or((None, crate::ui::tier_color(None), true));
         // Con la ventana translúcida, el fondo y el splash dejan ver el escritorio detrás.
-        let o = crate::app::opacity(cx);
+        let o = crate::app::content_opacity();
+        // El splash se ve más que el color de fondo: si no, con mucha transparencia casi desaparece y
+        // solo queda el escritorio.
+        let splash_o = 0.4 + 0.6 * o;
         let base = div().absolute().inset_0().overflow_hidden();
         if empty {
             return base;
@@ -129,7 +132,7 @@ impl Render for StageBg {
                         .w(px(vw + 60.))
                         .h(px(vh + 60.))
                         .object_fit(ObjectFit::Cover)
-                        .opacity(opacity * o)
+                        .opacity(opacity * splash_o)
                 };
                 if o < 1. {
                     // Con la ventana translúcida, una sola copia en el píxel más cercano.

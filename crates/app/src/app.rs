@@ -33,16 +33,42 @@ pub fn apply_translucency(t: u32, window: &mut Window) {
     window.refresh();
 }
 
-/// Cuánto se ve el fondo propio de la app (1 = opaco), según la transparencia elegida.
-pub fn opacity(cx: &App) -> f32 {
-    // Se lee de la configuración guardada (no hace falta la bóveda abierta).
-    let t = cx.try_global::<Translucency>().map(|t| t.0).unwrap_or(0);
-    1. - t as f32 / 100.
+static TRANSLUCENCY: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static BARS_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Guarda la transparencia elegida (la leen las vistas al dibujar).
+fn remember_translucency(config: &sv_core::config::Config) -> bool {
+    use std::sync::atomic::Ordering::SeqCst;
+    let t = TRANSLUCENCY.swap(config.translucency, SeqCst) != config.translucency;
+    let b = BARS_ONLY.swap(config.translucent_bars_only, SeqCst) != config.translucent_bars_only;
+    t || b
 }
 
-/// Transparencia actual, como global para que cualquier vista la lea al dibujar.
-pub struct Translucency(pub u32);
-impl Global for Translucency {}
+/// Cuánto se ve el fondo de las barras (arriba y lateral): 1 = opaco.
+pub fn opacity(_: &App) -> f32 {
+    1. - TRANSLUCENCY.load(std::sync::atomic::Ordering::SeqCst) as f32 / 100.
+}
+
+/// Cuánto se ve el fondo del contenido (cuentas, páginas, bloqueo): 1 = opaco. Con "solo las
+/// barras", el contenido queda opaco.
+pub fn content_opacity() -> f32 {
+    if BARS_ONLY.load(std::sync::atomic::Ordering::SeqCst) {
+        1.
+    } else {
+        1. - TRANSLUCENCY.load(std::sync::atomic::Ordering::SeqCst) as f32 / 100.
+    }
+}
+
+/// Fondo de las tarjetas (Herramientas, Ajustes): con la ventana translúcida, vidrio oscuro en vez
+/// de un negro sólido que contrasta.
+pub fn card_bg(p: &crate::theme::Palette) -> Hsla {
+    let o = content_opacity();
+    if o < 1. {
+        alpha(p.surface, 0.42 + 0.4 * o)
+    } else {
+        p.bg
+    }
+}
 
 pub struct AppView {
     vault: Entity<Vault>,
@@ -121,13 +147,12 @@ impl AppView {
         .detach();
         let lock = cx.new(|cx| LockScreen::new(vault.clone(), window, cx));
         let t = vault.read(cx).store.config.translucency;
-        cx.set_global(Translucency(t));
+        remember_translucency(&vault.read(cx).store.config);
         apply_translucency(t, window);
         // Otras vistas piden ir a una página (un chip, la paleta…) a través del estado compartido.
         let vault_sub = cx.observe_in(&vault, window, |this: &mut Self, vault, window, cx| {
-            let t = vault.read(cx).store.config.translucency;
-            if cx.global::<Translucency>().0 != t {
-                cx.set_global(Translucency(t));
+            if remember_translucency(&vault.read(cx).store.config) {
+                window.refresh();
             }
             if let Some(page) = vault.update(cx, |v, _| v.go_to.take()) {
                 this.set_page(page, window, cx);
@@ -544,7 +569,16 @@ impl Render for AppView {
                             .flex_1()
                             .min_h_0()
                             .child(self.sidebar(cx))
-                            .child(div().flex_1().min_w_0().h_full().relative().child(page)),
+                            // Con "solo las barras", el contenido tapa el escritorio con su fondo opaco.
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .relative()
+                                    .when(o < 1. && content_opacity() >= 1., |d| d.bg(p.bg))
+                                    .child(page),
+                            ),
                     )
                     .when(dialog_open, |d| {
                         d.child(div().id("dialog-backdrop").absolute().top(px(60.)).left_0().right_0().bottom_0().bg(alpha(p.bg, 0.86 * o.max(0.5))).occlude())

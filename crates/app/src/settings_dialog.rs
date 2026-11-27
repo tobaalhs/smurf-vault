@@ -286,9 +286,27 @@ impl SettingsPanel {
     fn appearance_block(&self, cx: &mut Context<Self>) -> Div {
         let p = palette(cx);
         let t = self.vault.read(cx).store.config.translucency;
+        let bars_only = self.vault.read(cx).store.config.translucent_bars_only;
         block(&p)
             .child(section(Icon::empty().path(crate::assets::icon("image")), "Transparencia de la ventana", &p))
-            .child(hint("Deja ver el escritorio detrás de la app, desenfocado, y el fondo del campeón se vuelve semitransparente. En 0 la ventana es opaca.", &p))
+            .child(hint("Deja ver el escritorio detrás, desenfocado por Windows (el desenfoque es parejo en toda la ventana). En 0 la ventana es opaca.", &p))
+            .child(
+                h_flex()
+                    .gap(px(12.))
+                    .child(div().flex_1().text_size(px(13.)).text_color(p.text_2).child("Aplicar a"))
+                    .child(crate::tabs::segmented(&p).mb(px(0.)).children([("Toda la ventana", false), ("Solo las barras", true)].map(|(label, bars)| {
+                        crate::tabs::segment(SharedString::from(format!("transl-{bars}")), label, None, bars_only == bars, &p).on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.vault.update(cx, |v, cx| {
+                                    v.store.config.translucent_bars_only = bars;
+                                    let _ = v.store.save_config();
+                                    cx.notify();
+                                });
+                                window.refresh();
+                            },
+                        ))
+                    }))),
+            )
             .child(
                 h_flex()
                     .gap(px(14.))
@@ -357,7 +375,7 @@ fn hint(text: &'static str, p: &Palette) -> Div {
 
 fn block(p: &Palette) -> Div {
     // flex_none: dentro de la zona con scroll no se achica (si no, el scroll no llega al final).
-    v_flex().flex_none().gap(px(10.)).p(px(14.)).rounded(px(12.)).border_1().border_color(p.border).bg(p.bg)
+    v_flex().flex_none().gap(px(10.)).p(px(14.)).rounded(px(12.)).border_1().border_color(p.border).bg(crate::app::card_bg(p))
 }
 
 impl Render for SettingsPanel {
