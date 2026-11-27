@@ -41,6 +41,11 @@ fn selected_server(select: &Entity<Choice>, cx: &App) -> String {
     select.read(cx).selected_value().map(|v| v.to_string()).filter(|v| v != NO_SERVER).unwrap_or_default()
 }
 
+/// Texto de ayuda chico bajo un campo.
+fn note(text: &'static str, cx: &App) -> Div {
+    div().text_size(px(11.5)).text_color(palette(cx).muted).child(text)
+}
+
 fn field(label: &'static str, input: impl IntoElement, cx: &App) -> Div {
     let p = palette(cx);
     v_flex().flex_1().gap(px(5.)).child(div().text_size(px(12.)).text_color(p.text_2).child(label)).child(input)
@@ -297,12 +302,8 @@ impl Render for AccountForm {
         v_flex()
             .gap(px(12.))
             .children(detect_bar)
-            .child(
-                h_flex()
-                    .gap(px(10.))
-                    .child(field("Usuario", Input::new(&self.username), cx))
-                    .child(field("Contraseña", Input::new(&self.password).mask_toggle(), cx)),
-            )
+            .child(field("Usuario de Riot", Input::new(&self.username), cx).child(note("El que escribes en el login, no el Riot ID.", cx)))
+            .child(field("Contraseña", Input::new(&self.password).mask_toggle(), cx).child(note("Se usa para iniciar sesión con Jugar. Queda cifrada con tu contraseña maestra.", cx)))
             .child(
                 h_flex()
                     .gap(px(10.))
@@ -325,43 +326,64 @@ fn open_account_with(vault: Entity<Vault>, acc: Option<Account>, prefill: Option
     let form = cx.new(|cx| AccountForm::new(vault.clone(), acc.as_ref(), prefill, window, cx));
     let (id, name) = acc.as_ref().map(|a| (a.id.clone(), if a.game_name.is_empty() { a.username.clone() } else { a.game_name.clone() })).unzip();
     let title = if acc.is_some() { "Editar cuenta" } else { "Nueva cuenta" };
-    window.open_dialog(cx, move |dialog, _, cx| {
+    // Panel a la derecha (no un diálogo al centro): la lista sigue a la vista a la izquierda.
+    window.close_all_dialogs(cx);
+    window.open_sheet(cx, move |sheet, _, cx| {
+        let p = palette(cx);
         let (form_save, vault_del) = (form.clone(), vault.clone());
         let (id_del, name) = (id.clone(), name.clone().unwrap_or_default());
-        let danger = palette(cx).danger;
-        below_bar(dialog).title(dialog_title(title)).w(px(580.)).child(form.clone()).footer(
+        // Lo destructivo va en su propia zona, con confirmación.
+        let danger_zone = id_del.map(|id| {
             h_flex()
-                .w_full()
-                .gap(px(8.))
-                .when_some(id_del, |d, id| {
-                    d.child(Button::new("acc-delete").ghost().text_color(danger).label("Eliminar").on_click(move |_, window, cx| {
-                        let (vault, id) = (vault_del.clone(), id.clone());
-                        confirm(
-                            "¿Eliminar cuenta?",
-                            format!("Se eliminará \"{name}\" de tu bóveda. No se puede deshacer."),
-                            "Eliminar",
-                            window,
-                            cx,
-                            move |window, cx| {
-                                match vault.update(cx, |v, cx| v.change(cx, |s| s.delete_account(&id))) {
-                                    Ok(()) => {
-                                        window.close_dialog(cx);
-                                        window.push_notification(Notification::info("Cuenta eliminada"), cx);
-                                    }
-                                    Err(e) => window.push_notification(Notification::error(e), cx),
-                                }
-                            },
-                        );
-                    }))
-                })
-                .child(div().flex_1())
-                .child(Button::new("acc-cancel").label("Cancelar").on_click(|_, window, cx| window.close_dialog(cx)))
-                .child(Button::new("acc-save").primary().label("Guardar").on_click(move |_, window, cx| {
-                    if form_save.update(cx, |f, cx| f.save(window, cx)) {
-                        window.close_dialog(cx);
-                    }
-                })),
-        )
+                .mt(px(18.))
+                .gap(px(12.))
+                .p(px(12.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(alpha(p.danger, 0.35))
+                .bg(alpha(p.danger, 0.05))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .gap(px(2.))
+                        .child(div().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(p.danger).child("Zona de peligro"))
+                        .child(div().text_size(px(12.5)).text_color(p.text_2).child("Eliminar la cuenta de la bóveda. No se puede deshacer.")),
+                )
+                .child(Button::new("acc-delete").outline().text_color(p.danger).label("Eliminar…").on_click(move |_, window, cx| {
+                    let (vault, id) = (vault_del.clone(), id.clone());
+                    confirm(
+                        "¿Eliminar cuenta?",
+                        format!("Se eliminará \"{name}\" de tu bóveda. No se puede deshacer."),
+                        "Eliminar cuenta",
+                        window,
+                        cx,
+                        move |window, cx| match vault.update(cx, |v, cx| v.change(cx, |s| s.delete_account(&id))) {
+                            Ok(()) => {
+                                window.close_sheet(cx);
+                                window.push_notification(Notification::info("Cuenta eliminada"), cx);
+                            }
+                            Err(e) => window.push_notification(Notification::error(e), cx),
+                        },
+                    );
+                }))
+        });
+        sheet
+            .title(dialog_title(title))
+            .size(px(500.))
+            .resizable(false)
+            .child(v_flex().id("account-sheet").size_full().overflow_y_scroll().pb(px(8.)).child(form.clone()).children(danger_zone))
+            .footer(
+                h_flex()
+                    .w_full()
+                    .gap(px(8.))
+                    .child(div().flex_1().text_size(px(12.)).text_color(p.muted).child("Esc cerrar"))
+                    .child(Button::new("acc-cancel").label("Cancelar").on_click(|_, window, cx| window.close_sheet(cx)))
+                    .child(Button::new("acc-save").primary().label(if title == "Nueva cuenta" { "Guardar cuenta" } else { "Guardar cambios" }).on_click(move |_, window, cx| {
+                        if form_save.update(cx, |f, cx| f.save(window, cx)) {
+                            window.close_sheet(cx);
+                        }
+                    })),
+            )
     });
 }
 

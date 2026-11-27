@@ -5,7 +5,7 @@ use crate::state::{splash_url, Vault};
 use crate::theme::palette;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{v_flex, Icon, Sizable};
+use gpui_kit::component::{h_flex, v_flex, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use rand::seq::SliceRandom;
@@ -207,73 +207,90 @@ impl Render for LockScreen {
         let google = self.vault.read(cx).drive.status();
         let lock_icon = || Icon::empty().path(assets::icon("lock")).text_color(p.muted);
 
+        let title = if self.searching_drive || self.from_drive || !create { "Bóveda bloqueada" } else { "Crea tu bóveda" };
+        let sub = if google.linked {
+            format!("Sincronizada con {}", google.email.clone().unwrap_or_else(|| "Google Drive".into()))
+        } else if create {
+            "Se guarda cifrada en este PC".to_string()
+        } else {
+            "Solo en este PC".to_string()
+        };
+        let auto_accept = self.vault.read(cx).store.config.auto_accept;
+        let label = |text: &'static str| div().w_full().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(p.text).child(text);
+        // Sin cuadro: todo flota al centro sobre el fondo del campeón, como en el diseño.
         let card = v_flex()
-            .w(px(380.))
-            .px(px(30.))
-            .pt(px(34.))
-            .pb(px(24.))
-            .gap(px(12.))
+            .w(px(400.))
+            .gap(px(10.))
             .items_center()
-            .rounded(px(18.))
-            .bg(Hsla { a: 0.9, ..p.surface })
-            .border_1()
-            .border_color(p.border_strong)
-            .shadow_lg()
-            .child(img(assets::logo()).size(px(84.)).rounded(px(20.)))
-            .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"))
-            .child(div().text_center().text_size(px(13.)).text_color(p.muted).child(hint))
-            .child(Input::new(&self.pw1).prefix(lock_icon()).h(px(40.)))
-            .when(create, |d| d.child(Input::new(&self.pw2).prefix(lock_icon()).h(px(40.))))
+            // Sombra amplia detrás, para que se lea sobre cualquier splash.
+            .child(
+                div()
+                    .size(px(76.))
+                    .rounded(px(20.))
+                    .shadow(vec![BoxShadow { inset: false, color: Hsla { a: 0.55, ..p.bg }, offset: point(px(0.), px(8.)), blur_radius: px(40.), spread_radius: px(10.) }])
+                    .child(img(assets::logo()).size(px(76.)).rounded(px(20.))),
+            )
+            .child(div().mt(px(8.)).text_size(px(24.)).font_weight(FontWeight::BOLD).text_color(p.text).child(title))
+            .child(div().text_center().text_size(px(13.)).text_color(p.text_2).child(sub))
+            // El caso normal ya lo dice el título; el texto solo aparece en los otros (crear, Drive).
+            .when(create || self.searching_drive || self.from_drive, |d| d.child(div().text_center().text_size(px(12.5)).text_color(p.muted).child(hint)))
+            .child(div().h(px(6.)))
+            .child(label(if create { "Contraseña maestra nueva" } else { "Contraseña maestra" }))
+            .child(Input::new(&self.pw1).prefix(lock_icon()).h(px(44.)))
+            .when(create, |d| d.child(Input::new(&self.pw2).prefix(lock_icon()).h(px(44.))))
             .child(
                 Button::new("lock-submit")
                     .primary()
                     .w_full()
-                    .h(px(40.))
+                    .h(px(44.))
                     .text_size(px(14.))
                     .label(if create { "Crear bóveda" } else { "Desbloquear" })
                     .loading(self.busy)
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
             )
             .when_some(self.error.clone(), |d, e| d.child(div().text_size(px(13.)).text_color(p.danger).child(e)))
-            .child(
-                v_flex()
-                    .w_full()
-                    .mt(px(14.))
-                    .pt(px(16.))
-                    .gap(px(6.))
-                    .items_center()
-                    .border_t_1()
-                    .border_color(p.border)
-                    .child(div().text_size(px(12.)).text_color(p.muted).child(if google.linked {
-                        format!("Sincronizada con {}", google.email.clone().unwrap_or_else(|| "Google Drive".into()))
-                    } else {
-                        "¿Ya usabas Smurf Vault en otro PC?".to_string()
-                    }))
-                    .when(!google.linked, |d| {
-                        d.child(
-                            Button::new("lock-google")
-                                .ghost()
-                                .small()
-                                .icon(Icon::empty().path(assets::icon("cloud")))
-                                .label("Vincular Google Drive")
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    let screen = cx.entity().downgrade();
-                                    crate::google::link(this.vault.clone(), window, cx, move |window, cx| {
-                                        // Ya vinculado: si hay una bóveda en Drive, se ofrece desbloquearla.
-                                        screen.update(cx, |this, cx| this.look_in_drive(window, cx)).ok();
-                                    });
-                                })),
-                        )
-                    }),
-            );
+            .when(auto_accept && !create, |d| {
+                d.child(
+                    h_flex()
+                        .w_full()
+                        .mt(px(4.))
+                        .gap(px(10.))
+                        .px(px(14.))
+                        .py(px(10.))
+                        .rounded(px(10.))
+                        .border_1()
+                        .border_color(Hsla { a: 0.3, ..p.cyan })
+                        .bg(Hsla { a: 0.07, ..p.cyan })
+                        .child(Icon::empty().path(assets::icon("zap")).size(px(16.)).text_color(p.cyan))
+                        .child(div().text_size(px(12.5)).text_color(p.text_2).child("Autoaceptar sigue activo mientras está bloqueada")),
+                )
+            })
+            .child(div().text_size(px(11.5)).text_color(p.muted).child(if create { "Enter para crear" } else { "Enter para desbloquear" }))
+            .when(!google.linked, |d| {
+                d.child(
+                    Button::new("lock-google")
+                        .ghost()
+                        .small()
+                        .icon(Icon::empty().path(assets::icon("cloud")))
+                        .label("¿Ya usabas Smurf Vault en otro PC? Vincular Google Drive")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let screen = cx.entity().downgrade();
+                            crate::google::link(this.vault.clone(), window, cx, move |window, cx| {
+                                // Ya vinculado: si hay una bóveda en Drive, se ofrece desbloquearla.
+                                screen.update(cx, |this, cx| this.look_in_drive(window, cx)).ok();
+                            });
+                        })),
+                )
+            });
 
+        let o = crate::app::opacity(cx);
         div()
             .size_full()
             .relative()
-            .bg(p.bg)
+            .bg(Hsla { a: o, ..p.bg })
             .overflow_hidden()
             .when_some(self.splash.clone(), |d, url| {
-                d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover).opacity(0.5))
+                d.child(img(url).absolute().inset_0().size_full().object_fit(ObjectFit::Cover).opacity(0.5 * o))
             })
             .child(div().absolute().inset_0().bg(linear_gradient(
                 180.,

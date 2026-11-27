@@ -127,6 +127,7 @@ impl Palette {
         m.right = px(22.);
         m.bottom = px(22.);
         m.left = px(22.);
+        t.sheet.margin_top = px(60.);
 
         t.background = self.bg;
         t.foreground = self.text;
