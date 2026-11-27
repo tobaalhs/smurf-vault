@@ -84,7 +84,7 @@ impl Render for StageBg {
         let (splash, tier, empty) = self.main.upgrade().map(|m| m.read(cx).bg_scene(cx)).unwrap_or((None, crate::ui::tier_color(None), true));
         // Con la ventana translúcida, el fondo y el splash dejan ver el escritorio detrás.
         let o = crate::app::opacity(cx);
-        let base = div().absolute().inset_0().overflow_hidden().bg(alpha(p.bg, o));
+        let base = div().absolute().inset_0().overflow_hidden();
         if empty {
             return base;
         }
@@ -131,6 +131,11 @@ impl Render for StageBg {
                         .object_fit(ObjectFit::Cover)
                         .opacity(opacity * o)
                 };
+                if o < 1. {
+                    // Con la ventana translúcida, una sola copia en el píxel más cercano.
+                    let (dx, dy) = (self.x.round() - ix, self.y.round() - iy);
+                    return d.child(layer(dx, dy, 1.)).child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16 * o)));
+                }
                 d.child(layer(0., 0., 1.))
                     .when(fx > 0.002, |d| d.child(layer(1., 0., fx)))
                     .when(w01 > 0.002, |d| d.child(layer(0., 1., w01)))
@@ -138,14 +143,14 @@ impl Render for StageBg {
                     .child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16)))
             })
             // Sombra suave detrás del nombre y los rangos, y velos para que la rueda y el texto se lean.
-            .child(glow(0.6, 0.38, alpha(p.bg, 0.32), 260.))
-            .child(band(0., 0.36, alpha(p.bg, 0.74), alpha(p.bg, 0.58)))
-            .child(band(0.36, 0.62, alpha(p.bg, 0.58), alpha(p.bg, 0.28)))
-            .child(band(0.62, 1.0, alpha(p.bg, 0.28), alpha(p.bg, 0.12)))
+            .child(glow(0.6, 0.38, alpha(p.bg, 0.32 * o), 260.))
+            .child(band(0., 0.36, alpha(p.bg, 0.74 * o), alpha(p.bg, 0.58 * o)))
+            .child(band(0.36, 0.62, alpha(p.bg, 0.58 * o), alpha(p.bg, 0.28 * o)))
+            .child(band(0.62, 1.0, alpha(p.bg, 0.28 * o), alpha(p.bg, 0.12 * o)))
             .child(div().absolute().left_0().right_0().bottom_0().h(relative(0.4)).bg(linear_gradient(
                 180.,
                 linear_color_stop(alpha(p.bg, 0.), 0.),
-                linear_color_stop(alpha(p.bg, 0.92), 1.),
+                linear_color_stop(alpha(p.bg, 0.92 * o), 1.),
             )))
     }
 }

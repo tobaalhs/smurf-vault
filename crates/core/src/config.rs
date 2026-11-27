@@ -24,8 +24,6 @@ pub struct Config {
     pub remote_token: Option<String>,
     /// Splash de fondo de las cuentas, para la pantalla de bloqueo (solo números de skin).
     pub lock_skins: Vec<i64>,
-    /// Barra lateral (Cuentas, Herramientas, Ajustes) abierta.
-    pub sidebar_open: bool,
     /// Transparencia de la ventana en %, para ver el escritorio detrás (0 = opaca).
     pub translucency: u32,
     /// Campos que esta versión no conoce: se conservan tal cual al guardar.
@@ -46,7 +44,6 @@ impl Default for Config {
             remote_enabled: false,
             remote_token: None,
             lock_skins: Vec::new(),
-            sidebar_open: true,
             translucency: 0,
             extra: Map::new(),
         }

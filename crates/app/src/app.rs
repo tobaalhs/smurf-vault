@@ -1,6 +1,6 @@
 //! Vista raíz: la barra de título propia (la ventana no usa la de Windows) y la pantalla actual,
-//! bloqueo o principal. La principal tiene una barra lateral que se puede ocultar (Cuentas,
-//! Herramientas, Ajustes) y arriba el buscador que abre la paleta de comandos (Ctrl K).
+//! bloqueo o principal. La principal tiene una barra lateral angosta, solo con íconos (Cuentas,
+//! Herramientas, Ajustes), y arriba el buscador que abre la paleta de comandos (Ctrl K).
 use crate::assets;
 use crate::lock::{LockEvent, LockScreen};
 use crate::main_screen::MainScreen;
@@ -24,7 +24,7 @@ enum Screen {
 }
 
 /// Ancho de la barra lateral abierta.
-const SIDEBAR_W: f32 = 90.;
+const SIDEBAR_W: f32 = 60.;
 
 /// Aplica la transparencia de la ventana (en %): con algo de transparencia se ve el escritorio
 /// detrás, desenfocado; en 0 la ventana es opaca.
@@ -237,14 +237,6 @@ impl AppView {
         cx.notify();
     }
 
-    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        self.vault.update(cx, |v, cx| {
-            v.store.config.sidebar_open = !v.store.config.sidebar_open;
-            let _ = v.store.save_config();
-            cx.notify();
-        });
-    }
-
     fn open_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let main = match &self.screen {
             Screen::Main(main, _) => Some(main.clone()),
@@ -294,22 +286,8 @@ impl AppView {
     fn top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let o = opacity(cx);
-        let toggle = div()
-            .id("sidebar-toggle")
-            .size(px(34.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(8.))
-            .cursor_pointer()
-            .occlude()
-            .hover(|s| s.bg(p.surface_2))
-            .child(Icon::empty().path(assets::icon("panel-left")).size(px(18.)).text_color(p.text_2))
-            .tooltip(|window, cx| Tooltip::new("Mostrar u ocultar la barra lateral (Ctrl B)").build(window, cx))
-            .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx)));
         let brand = h_flex()
             .gap(px(10.))
-            .child(toggle)
             .child(img(assets::logo()).size(px(30.)).rounded(px(8.)))
             .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"));
         // Buscador: abre la paleta de comandos.
@@ -432,40 +410,38 @@ impl AppView {
         let config = self.vault.read(cx).store.config.clone();
         let active_tools = [config.auto_accept, config.appear_offline, config.remote_enabled].iter().filter(|on| **on).count();
         let item = |id: &'static str, icon: Icon, label: &'static str, active: bool, badge: Option<usize>| {
-            v_flex()
+            div()
                 .id(id)
-                .mx(px(6.))
-                .py(px(9.))
-                .gap(px(4.))
+                .mx_auto()
+                .size(px(42.))
+                .flex()
                 .items_center()
+                .justify_center()
+                .relative()
                 .rounded(px(10.))
                 .cursor_pointer()
                 .when(active, |d| d.bg(p.surface_2).border_1().border_color(p.border_strong))
-                .when(!active, |d| d.hover(|s| s.bg(alpha(p.surface_2, 0.6))))
-                .child(
-                    div()
-                        .relative()
-                        .child(icon.size(px(19.)).text_color(if active { p.gold_hi } else { p.text_2 }))
-                        .when_some(badge.filter(|n| *n > 0), |d, n| {
-                            d.child(
-                                div()
-                                    .absolute()
-                                    .top(px(-6.))
-                                    .right(px(-10.))
-                                    .size(px(16.))
-                                    .rounded_full()
-                                    .bg(p.cyan)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_size(px(10.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(p.on_cyan)
-                                    .child(n.to_string()),
-                            )
-                        }),
-                )
-                .child(div().whitespace_nowrap().text_size(px(11.)).text_color(if active { p.text } else { p.muted }).child(label))
+                .when(!active, |d| d.hover(|s| s.bg(alpha(p.surface_2, 0.7))))
+                .child(icon.size(px(20.)).text_color(if active { p.gold_hi } else { p.text_2 }))
+                .when_some(badge.filter(|n| *n > 0), |d, n| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .top(px(3.))
+                            .right(px(3.))
+                            .size(px(15.))
+                            .rounded_full()
+                            .bg(p.cyan)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(9.5))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(p.on_cyan)
+                            .child(n.to_string()),
+                    )
+                })
+                .when(!label.is_empty(), |d| d.tooltip(move |window, cx| Tooltip::new(label).build(window, cx)))
         };
         let nav = |page: Page| cx.listener(move |this: &mut Self, _: &ClickEvent, window, cx| this.set_page(page, window, cx));
         use sv_core::drive::SyncState;
@@ -486,7 +462,7 @@ impl AppView {
             .flex_none()
             .h_full()
             .py(px(10.))
-            .gap(px(4.))
+            .gap(px(6.))
             .border_r_1()
             .border_color(p.border)
             .bg(alpha(p.surface, 0.72 * o))
@@ -498,26 +474,19 @@ impl AppView {
             .child(item("nav-settings", Icon::empty().path(assets::icon("settings")), "Ajustes", self.page == Page::Settings, None).on_click(nav(Page::Settings)))
             .child(div().flex_1())
             .child(
-                item(
-                    "nav-drive",
-                    Icon::empty().path(assets::icon(if drive_dot == p.muted { "cloud-off" } else { "cloud" })),
-                    drive_label,
-                    false,
-                    None,
-                )
-                .child(div().size(px(6.)).rounded_full().bg(drive_dot))
-                .tooltip(move |window, cx| Tooltip::new(drive_tip.clone()).build(window, cx))
+                item("nav-drive", Icon::empty().path(assets::icon(if drive_dot == p.muted { "cloud-off" } else { "cloud" })), "", false, None)
+                .child(div().absolute().bottom(px(7.)).right(px(7.)).size(px(8.)).rounded_full().border_1().border_color(p.surface).bg(drive_dot))
+                .tooltip(move |window, cx| Tooltip::new(format!("{drive_label} · {drive_tip}")).build(window, cx))
                 .on_click(nav(Page::Settings)),
             )
             .child(
-                item("nav-lock", Icon::empty().path(assets::icon("lock-keyhole")), "Bloquear", false, None)
-                    .tooltip(|window, cx| Tooltip::new("Bloquear la bóveda (Ctrl L)").build(window, cx))
+                item("nav-lock", Icon::empty().path(assets::icon("lock-keyhole")), "Bloquear la bóveda (Ctrl L)", false, None)
                     .on_click(cx.listener(|this, _, window, cx| this.lock(window, cx))),
             )
     }
 
-    /// Atajos de la pantalla principal: Ctrl+L bloquea, Ctrl+N agrega una cuenta, Ctrl+K abre la
-    /// paleta y Ctrl+B muestra u oculta la barra lateral.
+    /// Atajos de la pantalla principal: Ctrl+L bloquea, Ctrl+N agrega una cuenta y Ctrl+K abre la
+    /// paleta.
     fn on_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if !ev.keystroke.modifiers.control || !matches!(self.screen, Screen::Main(_, _)) {
             return;
@@ -526,7 +495,6 @@ impl AppView {
             "l" => self.lock(window, cx),
             "n" => dialogs::open_add(self.vault.clone(), window, cx),
             "k" => self.open_palette(window, cx),
-            "b" => self.toggle_sidebar(cx),
             _ => return,
         }
         cx.stop_propagation();
@@ -553,7 +521,6 @@ impl Render for AppView {
                 .into_any_element(),
             Screen::Main(main, bg) => {
                 let (main, bg) = (main.clone(), bg.clone());
-                let sidebar_open = self.vault.read(cx).store.config.sidebar_open;
                 let page: AnyElement = match self.page {
                     // El fondo va detrás y la pantalla encima, en caché: al mover el mouse solo se
                     // redibuja el fondo.
@@ -576,7 +543,7 @@ impl Render for AppView {
                         h_flex()
                             .flex_1()
                             .min_h_0()
-                            .when(sidebar_open, |d| d.child(self.sidebar(cx)))
+                            .child(self.sidebar(cx))
                             .child(div().flex_1().min_w_0().h_full().relative().child(page)),
                     )
                     .when(dialog_open, |d| {
