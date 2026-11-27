@@ -64,10 +64,11 @@ fn delta_badge(points: Option<&Vec<LpPoint>>, p: &Palette) -> Option<Div> {
     Some(div().font_weight(FontWeight::SEMIBOLD).text_color(if up { p.ok } else { p.loss }).child(format!("{} {text}", if up { "▲" } else { "▼" })))
 }
 
-fn rank_card(title: &'static str, r: Option<&Rank>, lp: Option<&Vec<LpPoint>>, width: f32, p: &Palette) -> Div {
+fn rank_card(title: &'static str, r: Option<&Rank>, lp: Option<&Vec<LpPoint>>, p: &Palette) -> Div {
     let base = h_flex()
         .gap(px(12.))
-        .w(px(width))
+        .w_full()
+        .min_w_0()
         .px(px(14.))
         .py(px(12.))
         .rounded(px(12.))
@@ -308,7 +309,6 @@ impl MainScreen {
         // Grilla de columnas iguales (CSS: repeat(auto-fill, minmax(230px, 1fr)), máx. 780 px).
         let avail = self.detail_w.min(780.);
         let cols = ((avail + 10.) / 240.).floor().max(1.);
-        let card_w = (avail - 10. * (cols - 1.)) / cols;
 
         let strip = |mode: &'static str, label: &'static str, cx: &mut Context<Self>| {
             let list: Vec<&Match> = matches.iter().filter(|m| m.mode == mode).take(10).collect();
@@ -379,14 +379,17 @@ impl MainScreen {
             .pb(px(12.))
             .pr(px(6.))
             .child(
-                h_flex()
+                // Grilla de columnas iguales: cada tarjeta toma su columna, así no salta de línea por
+                // unos píxeles al cambiar el ancho de la ventana.
+                div()
+                    .grid()
+                    .grid_cols(cols as u16)
                     .max_w(px(780.))
                     .gap(px(10.))
-                    .flex_wrap()
-                    .child(rank_card("Solo/Dúo", a.ranks.solo.as_ref(), lp.get("solo"), card_w, &p))
-                    .child(rank_card("Flex", a.ranks.flex.as_ref(), lp.get("flex"), card_w, &p))
-                    .when_some(a.ranks.tft.as_ref(), |d, r| d.child(rank_card("TFT", Some(r), lp.get("tft"), card_w, &p)))
-                    .when_some(a.ranks.double_up.as_ref(), |d, r| d.child(rank_card("Double Up", Some(r), None, card_w, &p))),
+                    .child(rank_card("Solo/Dúo", a.ranks.solo.as_ref(), lp.get("solo"), &p))
+                    .child(rank_card("Flex", a.ranks.flex.as_ref(), lp.get("flex"), &p))
+                    .when_some(a.ranks.tft.as_ref(), |d, r| d.child(rank_card("TFT", Some(r), lp.get("tft"), &p)))
+                    .when_some(a.ranks.double_up.as_ref(), |d, r| d.child(rank_card("Double Up", Some(r), None, &p))),
             )
             .children(strip("lol", "Últimas de LoL", cx))
             .children(strip("tft", "Últimas de TFT", cx))
