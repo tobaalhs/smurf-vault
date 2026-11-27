@@ -168,25 +168,22 @@ impl AppView {
             _vault_sub: vault_sub,
             tray: None,
         };
-        // Actualizaciones desde GitHub (solo la versión instalada): al abrir y cada 6 horas.
+        // Actualizaciones desde GitHub (solo la versión instalada): al abrir y cada hora. También se
+        // pueden buscar a mano en Ajustes.
         if sv_core::update::is_installed() {
             cx.spawn_in(window, async move |_, cx| loop {
-                let found = cx.background_executor().spawn(async { sv_core::update::check_and_download() }).await;
-                if let Ok(Some(update)) = found {
-                    let version = update.version.clone();
-                    let first = crate::desktop::pending_update_version().as_deref() != Some(version.as_str());
-                    crate::desktop::set_pending_update(update);
-                    let alive = cx.update(|window, cx| {
-                        if first {
-                            window.push_notification(Notification::success(format!("Hay una versión nueva (v{version}) lista para instalar")), cx);
-                        }
-                        window.refresh();
-                    });
-                    if alive.is_err() {
-                        break;
+                let before = crate::desktop::pending_update_version();
+                let found = cx.background_executor().spawn(async { crate::desktop::check_for_update() }).await;
+                let alive = cx.update(|window, cx| {
+                    if let Some(version) = found.filter(|v| before.as_deref() != Some(v.as_str())) {
+                        window.push_notification(Notification::success(format!("Hay una versión nueva (v{version}) lista para instalar")), cx);
                     }
+                    window.refresh();
+                });
+                if alive.is_err() {
+                    break;
                 }
-                cx.background_executor().timer(std::time::Duration::from_secs(6 * 60 * 60)).await;
+                cx.background_executor().timer(std::time::Duration::from_secs(60 * 60)).await;
             })
             .detach();
         }

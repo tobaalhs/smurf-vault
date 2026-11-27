@@ -55,6 +55,12 @@ fn sha512_from_yml(yml: &str) -> Option<String> {
 /// Busca una versión nueva; si hay, baja el instalador a una carpeta temporal y lo verifica.
 /// Ok(None) si ya está al día.
 pub fn check_and_download() -> Result<Option<ReadyUpdate>, String> {
+    check_and_download_with(|_, _, _| {})
+}
+
+/// Como `check_and_download`, avisando el avance: `progress(versión, bajado, total)` en bytes
+/// (total 0 si el servidor no lo dice).
+pub fn check_and_download_with(progress: impl Fn(&str, u64, u64)) -> Result<Option<ReadyUpdate>, String> {
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(60)).user_agent("smurf-vault-updater").build();
     let release: Value = agent
         .get(&format!("https://api.github.com/repos/{REPO}/releases/latest"))
@@ -86,15 +92,20 @@ pub fn check_and_download() -> Result<Option<ReadyUpdate>, String> {
         std::fs::read(path).map(|b| base64::engine::general_purpose::STANDARD.encode(sha2::Sha512::digest(&b)) == expected).unwrap_or(false)
     };
     if !ok(&installer) {
-        let mut bytes = Vec::new();
-        agent
-            .get(&setup_url)
-            .call()
-            .map_err(|e| format!("No pude bajar la actualización: {e}"))?
-            .into_reader()
-            .take(512 << 20)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
+        let resp = agent.get(&setup_url).call().map_err(|e| format!("No pude bajar la actualización: {e}"))?;
+        let total: u64 = resp.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let mut reader = resp.into_reader().take(512 << 20);
+        let mut bytes = Vec::with_capacity(total as usize);
+        let mut chunk = [0u8; 64 * 1024];
+        progress(&version, 0, total);
+        loop {
+            let n = reader.read(&mut chunk).map_err(|e| format!("No pude bajar la actualización: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..n]);
+            progress(&version, bytes.len() as u64, total);
+        }
         if base64::engine::general_purpose::STANDARD.encode(sha2::Sha512::digest(&bytes)) != expected {
             return Err("La actualización bajada no coincide con su firma (sha512)".into());
         }

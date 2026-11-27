@@ -298,6 +298,56 @@ pub fn set_pending_update(update: sv_core::update::ReadyUpdate) {
     *PENDING_UPDATE.lock().unwrap() = Some(update);
 }
 
+/// Estado de la búsqueda de actualizaciones (lo muestra Ajustes).
+#[derive(Clone, Debug, PartialEq)]
+pub enum UpdateStatus {
+    Idle,
+    Checking,
+    /// Bajando la versión, con el porcentaje (None si no se sabe el tamaño).
+    Downloading(String, Option<u8>),
+    UpToDate,
+    Failed(String),
+}
+
+static UPDATE_STATUS: std::sync::Mutex<UpdateStatus> = std::sync::Mutex::new(UpdateStatus::Idle);
+
+pub fn update_status() -> UpdateStatus {
+    UPDATE_STATUS.lock().unwrap().clone()
+}
+
+fn set_update_status(status: UpdateStatus) {
+    *UPDATE_STATUS.lock().unwrap() = status;
+}
+
+/// Busca una versión nueva y, si hay, la baja (bloqueante: va en un hilo de fondo). Deja el estado
+/// para la interfaz y, si quedó lista, la anota para instalarla. Devuelve la versión nueva si la hay.
+pub fn check_for_update() -> Option<String> {
+    if matches!(update_status(), UpdateStatus::Checking | UpdateStatus::Downloading(..)) {
+        return None;
+    }
+    set_update_status(UpdateStatus::Checking);
+    let found = sv_core::update::check_and_download_with(|version, done, total| {
+        let pct = (total > 0).then(|| ((done * 100) / total).min(100) as u8);
+        set_update_status(UpdateStatus::Downloading(version.to_string(), pct));
+    });
+    match found {
+        Ok(Some(update)) => {
+            let version = update.version.clone();
+            set_pending_update(update);
+            set_update_status(UpdateStatus::Idle);
+            Some(version)
+        }
+        Ok(None) => {
+            set_update_status(UpdateStatus::UpToDate);
+            None
+        }
+        Err(e) => {
+            set_update_status(UpdateStatus::Failed(e));
+            None
+        }
+    }
+}
+
 pub fn pending_update_version() -> Option<String> {
     PENDING_UPDATE.lock().unwrap().as_ref().map(|u| u.version.clone())
 }

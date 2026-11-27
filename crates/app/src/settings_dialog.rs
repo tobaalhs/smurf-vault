@@ -248,6 +248,83 @@ impl SettingsPanel {
             )
     }
 
+    /// Versión actual y actualizaciones: buscar a mano, el avance de la descarga y reiniciar para
+    /// instalar (sin ventanas; la app se vuelve a abrir sola).
+    fn update_box(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        use crate::desktop::UpdateStatus;
+        let p = palette(cx);
+        let installed = sv_core::update::is_installed();
+        let ready = crate::desktop::pending_update_version();
+        let status = crate::desktop::update_status();
+        let busy = matches!(status, UpdateStatus::Checking | UpdateStatus::Downloading(..));
+        let line: Option<(SharedString, Hsla)> = match (&ready, &status) {
+            (Some(v), _) => Some((format!("v{v} lista para instalar").into(), p.ok)),
+            (_, UpdateStatus::Checking) => Some(("Buscando…".into(), p.muted)),
+            (_, UpdateStatus::Downloading(v, Some(pct))) => Some((format!("Bajando v{v}… {pct}%").into(), p.cyan)),
+            (_, UpdateStatus::Downloading(v, None)) => Some((format!("Bajando v{v}…").into(), p.cyan)),
+            (_, UpdateStatus::UpToDate) => Some(("Estás al día".into(), p.ok)),
+            (_, UpdateStatus::Failed(e)) => Some((e.clone().into(), p.danger)),
+            (_, UpdateStatus::Idle) => None,
+        };
+        let button = if ready.is_some() {
+            Button::new("update-install").primary().small().label("Reiniciar y actualizar").on_click(|_, window, cx| {
+                if let Err(e) = crate::desktop::install_update_now(cx) {
+                    window.push_notification(Notification::error(e), cx);
+                }
+            })
+        } else {
+            Button::new("update-check")
+                .small()
+                .label("Buscar actualizaciones")
+                .loading(busy)
+                .disabled(!installed || busy)
+                .tooltip(if installed { "Busca y baja la versión nueva; después la instalas con un clic" } else { "Solo funciona en la versión instalada" })
+                .on_click(cx.listener(|this, _, window, cx| this.check_updates(window, cx)))
+        };
+        v_flex()
+            .items_end()
+            .gap(px(4.))
+            .child(
+                h_flex()
+                    .gap(px(10.))
+                    .child(div().text_size(px(12.)).text_color(p.muted).child(format!("Smurf Vault v{}", env!("CARGO_PKG_VERSION"))))
+                    .child(button),
+            )
+            .when_some(line, |d, (text, color)| d.child(div().max_w(px(320.)).text_size(px(12.)).text_color(color).child(text)))
+    }
+
+    /// Busca una actualización a mano; mientras baja, se redibuja para mostrar el avance.
+    fn check_updates(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let work = cx.background_spawn(async { crate::desktop::check_for_update() });
+        // Mientras trabaja, se redibuja cada medio segundo para mostrar el avance.
+        cx.spawn_in(window, async move |this, cx| {
+            let mut work = std::pin::pin!(work);
+            loop {
+                let tick = cx.background_executor().timer(std::time::Duration::from_millis(500));
+                match futures::future::select(work.as_mut(), std::pin::pin!(tick)).await {
+                    futures::future::Either::Left((found, _)) => {
+                        this.update_in(cx, |_, window, cx| {
+                            if let Some(v) = found {
+                                window.push_notification(Notification::success(format!("v{v} lista: reinicia para actualizar")), cx);
+                            }
+                            window.refresh();
+                            cx.notify();
+                        })
+                        .ok();
+                        break;
+                    }
+                    futures::future::Either::Right(_) => {
+                        if this.update(cx, |_, cx| cx.notify()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// API key de Riot: si hay una guardada y el botón para cambiarla.
     fn riot_key_block(&self, cx: &mut Context<Self>) -> Div {
         let p = palette(cx);
@@ -445,7 +522,7 @@ impl Render for SettingsPanel {
                         h_flex()
                             .items_end()
                             .child(div().flex_1().text_size(px(26.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Ajustes"))
-                            .child(div().text_size(px(12.)).text_color(p.muted).child(format!("Smurf Vault v{}", env!("CARGO_PKG_VERSION")))),
+                            .child(self.update_box(cx)),
                     )
                     .child(group("SINCRONIZACIÓN"))
                     .child(self.google_block(cx))
