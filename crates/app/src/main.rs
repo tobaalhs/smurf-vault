@@ -42,7 +42,14 @@ fn main() {
         let config = sv_core::config::Config::load(&paths);
         theme::Palette::from_theme(&config.theme).apply(cx);
 
-        let bounds = Bounds::centered(None, size(px(1240.), px(780.)), cx);
+        // Grande para que se vea todo el detalle sin bajar (usuario, contraseña, fondo de perfil),
+        // pero sin pasarse de la pantalla (sin la barra de tareas) en monitores chicos.
+        let (mut w, mut h) = (1360f32, 900f32);
+        if let Some(area) = cx.primary_display().map(|d| d.visible_bounds()) {
+            w = w.min(f32::from(area.size.width) * 0.94);
+            h = h.min(f32::from(area.size.height) * 0.94);
+        }
+        let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(820.), px(560.))),

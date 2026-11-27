@@ -122,6 +122,51 @@ fn stripe_path(o: Point<Pixels>, w: f32, h: f32, s: f32) -> Option<Path> {
     b.build().ok()
 }
 
+/// El splash de la cuenta recortado con la forma de la placa (bordes inclinados y esquinas
+/// redondeadas). GPUI no recorta imágenes con una forma, así que se dibuja en franjas horizontales
+/// finas, cada una recortada a lo ancho que tiene la placa a esa altura.
+fn plate_splash(url: SharedString, w: f32, h: f32, r: f32, opacity: f32) -> Div {
+    const STRIP: f32 = 3.;
+    let k = SKEW * h / 2.;
+    let mut out = div().absolute().inset_0();
+    let mut y = 0.;
+    while y < h {
+        let dh = STRIP.min(h - y);
+        let mid = y + dh / 2.;
+        // Bordes de la placa a esta altura (la izquierda va de +k arriba a -k abajo; la derecha igual).
+        let t = mid / h;
+        let (mut left, mut right) = (k - 2. * k * t, w + k - 2. * k * t);
+        // Esquinas redondeadas: cerca de arriba y de abajo se entra un poco más.
+        let edge = mid.min(h - mid);
+        if edge < r {
+            let inset = r - (r * r - (r - edge) * (r - edge)).max(0.).sqrt();
+            left += inset;
+            right -= inset;
+        }
+        out = out.child(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(y))
+                .w(px((right - left).max(0.)))
+                .h(px(dh))
+                .overflow_hidden()
+                .child(
+                    img(url.clone())
+                        .absolute()
+                        .left(px(-left - k))
+                        .top(px(-y))
+                        .w(px(w + 2. * k))
+                        .h(px(h))
+                        .object_fit(ObjectFit::Cover)
+                        .opacity(opacity),
+                ),
+        );
+        y += dh;
+    }
+    out
+}
+
 fn item_content(a: &Account, s: f32, saved: bool, p: &Palette, cx: &App) -> Div {
     let sub = [a.server.clone(), a.label.clone(), a.last_played_at.as_deref().map(|t| ui::ago(Some(t))).unwrap_or_default()]
         .into_iter()
@@ -287,7 +332,6 @@ impl MainScreen {
             // Punto verde: lista para Jugar (tiene usuario y contraseña).
             let saved = !a.username.is_empty() && !a.password.is_empty();
             let r = 10. * s;
-            let k = SKEW * h / 2.;
             let paint_fill = move |b: Bounds<Pixels>, _: (), window: &mut Window, _: &mut App| {
                 if let Some(path) = plate_path(b.origin, f32::from(b.size.width), f32::from(b.size.height), r, None) {
                     window.paint_path(path, fill);
@@ -319,18 +363,7 @@ impl MainScreen {
                     })
                     .child(canvas(|_, _, _| (), paint_fill).absolute().inset_0())
                     // El splash de la cuenta, tenue, como la imagen de cada mapa en osu!.
-                    .when_some(splash, |d, url| {
-                        d.child(
-                            img(url)
-                                .absolute()
-                                .left_0()
-                                .top(px(1.))
-                                .w(px(w - k - 8. * s))
-                                .h(px(h - 2.))
-                                .object_fit(ObjectFit::Cover)
-                                .opacity(if sel { 0.4 } else { 0.15 }),
-                        )
-                    })
+                    .when_some(splash, |d, url| d.child(plate_splash(url, w, h, r, if sel { 0.4 } else { 0.15 })))
                     .child(canvas(|_, _, _| (), paint_edges).absolute().inset_0())
                     .child(item_content(a, s, saved, &p, cx))
                     .into_any_element(),
