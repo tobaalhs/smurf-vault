@@ -210,8 +210,8 @@ impl MainScreen {
             if a.game_name.is_empty() {
                 d.child(div().truncate().child(if a.label.is_empty() { a.username.clone() } else { a.label.clone() }))
             } else {
-                d.child(div().truncate().child(a.game_name.clone()))
-                    .child(div().flex_none().text_size(px(26.9)).font_weight(FontWeight::MEDIUM).text_color(p.text_2).child(format!("#{}", a.tag_line)))
+                d.child(div().flex_shrink_0().max_w_full().truncate().child(a.game_name.clone()))
+                    .child(div().min_w_0().truncate().text_size(px(26.9)).font_weight(FontWeight::MEDIUM).text_color(p.text_2).child(format!("#{}", a.tag_line)))
             }
         });
 
@@ -484,15 +484,21 @@ impl MainScreen {
             .on_click(cx.listener(|this, _, window, cx| this.play_selected(window, cx)))
     }
 
-    fn actions(&self, a: &Account, cx: &mut Context<Self>) -> impl IntoElement {
+    fn actions(&self, a: &Account, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
+        // Ancho de la ventana bajo el que la fila no cabe entera.
+        let width = f32::from(window.viewport_size().width);
+        let compact = width < 1180.;
+        let tight = width < 1000.;
         let can_play = !a.username.is_empty() && !a.password.is_empty();
         let vault = self.vault.read(cx);
         let (_, caption) = ui::splash_for(a, vault.store.session().map(|s| &s.history), |c| vault.game.champion(c));
         let subtle = |id: &'static str, icon: Icon, label: &'static str| {
             Button::new(id)
                 .icon(icon.size(px(16.)))
-                .label(label)
+                .when(!tight, |b| b.label(label))
+                .when(tight, |b| b.tooltip(label).w(px(44.)))
+                .flex_shrink_0()
                 .h(px(42.))
                 .px(px(14.))
                 .text_size(px(13.5))
@@ -512,15 +518,15 @@ impl MainScreen {
             )
             .child(
                 subtle("refresh", Icon::new(IconName::RefreshCw), "Actualizar")
-                    .tooltip("Lee rangos, historial y maestrías desde el cliente de LoL (esta cuenta tiene que estar abierta ahí)")
+                    .when(!tight, |b| b.tooltip("Lee rangos, historial y maestrías desde el cliente de LoL (esta cuenta tiene que estar abierta ahí)"))
                     .loading(self.detecting)
                     .on_click(cx.listener(move |this, _, window, cx| this.detect(true, Some(acc_id.clone()), window, cx))),
             )
             .child(div().flex_1())
-            .child(div().text_size(px(11.5)).text_color(p.muted).child(caption))
+            .when(!compact, |d| d.child(div().flex_shrink(1.).min_w_0().truncate().text_size(px(11.5)).text_color(p.muted).child(caption)))
     }
 
-    pub(crate) fn detail(&mut self, a: &Account, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn detail(&mut self, a: &Account, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.vault.read(cx).store.session().and_then(|s| s.history.get(&a.id)).map(|m| m.len()).unwrap_or(0);
         let body = match self.tab {
             Tab::Summary => self.summary(a, cx).into_any_element(),
@@ -538,6 +544,6 @@ impl MainScreen {
             .child(self.hero(a, cx))
             .child(self.tabs(a, count, cx))
             .child(div().id("detail-body").flex_1().min_h_0().overflow_y_scroll().child(body))
-            .child(self.actions(a, cx))
+            .child(self.actions(a, window, cx))
     }
 }

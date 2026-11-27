@@ -35,7 +35,7 @@ const SORTS: [(SortKey, &str, &str); 4] = [
     (SortKey::Played, "played", "Última partida"),
 ];
 const DIVISIONS: [&str; 4] = ["I", "II", "III", "IV"];
-const NO_FRIEND: &str = "— nadie —";
+const NO_FRIEND: &str = "Nadie";
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
@@ -634,7 +634,8 @@ impl Render for MainScreen {
         }
         self.advance_wheel(list.len(), window);
         let viewport = window.viewport_size();
-        let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height) - 60.);
+        // Ancho de esta pantalla: la ventana menos la barra lateral.
+        let (vw, vh) = (f32::from(viewport.width) - crate::app::SIDEBAR_W, f32::from(viewport.height) - 60.);
         let side_w = (vw * 0.44).max(400.);
         // Ancho útil del detalle (sin sus márgenes), para la grilla de tarjetas de rango.
         self.detail_w = vw - side_w - 22. - 36. - 6.;
@@ -650,14 +651,14 @@ impl Render for MainScreen {
             // El mouse solo mueve el fondo (otra vista): esta pantalla no se vuelve a dibujar.
             .on_mouse_move(cx.listener(move |this, ev: &MouseMoveEvent, _, cx| {
                 if let Some(bg) = &this.bg {
-                    let (fx, fy) = (f32::from(ev.position.x) / vw, (f32::from(ev.position.y) - 60.) / vh_);
+                    let (fx, fy) = ((f32::from(ev.position.x) - crate::app::SIDEBAR_W) / vw, (f32::from(ev.position.y) - 60.) / vh_);
                     bg.update(cx, |b, cx| b.follow(fx, fy, cx));
                 }
             }))
             .relative()
             .size_full()
             .overflow_hidden()
-            .child(h_flex().relative().size_full().items_start().child(self.side(side_w, &list, cx)).when_some(account, |d, a| d.child(self.detail(&a, cx))))
+            .child(h_flex().relative().size_full().items_start().child(self.side(side_w, &list, cx)).when_some(account, |d, a| d.child(self.detail(&a, window, cx))))
             .children(self.client_overlays(cx))
             .into_any_element()
     }

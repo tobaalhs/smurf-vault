@@ -42,7 +42,7 @@ fn main() {
         let config = sv_core::config::Config::load(&paths);
         theme::Palette::from_theme(&config.theme).apply(cx);
 
-        let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
+        let bounds = Bounds::centered(None, size(px(1240.), px(780.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(820.), px(560.))),

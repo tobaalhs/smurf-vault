@@ -24,7 +24,7 @@ enum Screen {
 }
 
 /// Ancho de la barra lateral abierta.
-const SIDEBAR_W: f32 = 60.;
+pub const SIDEBAR_W: f32 = 60.;
 
 /// Aplica la transparencia de la ventana (en %): con algo de transparencia se ve el escritorio
 /// detrás, desenfocado; en 0 la ventana es opaca.

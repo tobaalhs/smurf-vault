@@ -172,6 +172,35 @@ pub fn blurred(url: &str, radius: u32) -> String {
     format!("{url}{sep}{BLUR_PARAM}{radius}")
 }
 
+/// Marca que pide la imagen achicada a ese ancho: `?sv_w=144`. Se quita antes de pedirla.
+const WIDTH_PARAM: &str = "sv_w=";
+
+/// URL de una miniatura achicada a `width` px de ancho: ocupa mucha menos memoria que la original
+/// (las de las skins vienen a 380 px y se muestran a menos de 100).
+pub fn thumbnail(url: &str, width: u32) -> String {
+    let sep = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{sep}{WIDTH_PARAM}{width}")
+}
+
+fn split_width(uri: &str) -> (String, Option<u32>) {
+    let Some(at) = uri.find(WIDTH_PARAM) else { return (uri.to_string(), None) };
+    let width = uri[at + WIDTH_PARAM.len()..].split('&').next().and_then(|r| r.parse().ok());
+    (uri[..at - 1].to_string(), width)
+}
+
+/// Achica la imagen a `width` px de ancho (si es más grande), en PNG para no perder calidad.
+fn shrink_image(bytes: &[u8], width: u32) -> anyhow::Result<Vec<u8>> {
+    let img = image::load_from_memory(bytes)?.to_rgba8();
+    if img.width() <= width {
+        return Ok(bytes.to_vec());
+    }
+    let h = ((img.height() as f32) * width as f32 / img.width() as f32).round().max(1.) as u32;
+    let small = image::imageops::resize(&img, width, h, image::imageops::FilterType::Triangle);
+    let mut buf = std::io::Cursor::new(Vec::new());
+    small.write_to(&mut buf, image::ImageFormat::Png)?;
+    Ok(buf.into_inner())
+}
+
 fn split_blur(uri: &str) -> (String, Option<f32>) {
     let Some(at) = uri.find(BLUR_PARAM) else { return (uri.to_string(), None) };
     let radius = uri[at + BLUR_PARAM.len()..].split('&').next().and_then(|r| r.parse().ok());
@@ -200,10 +229,12 @@ fn blur_image(bytes: &[u8], radius: f32) -> anyhow::Result<Vec<u8>> {
 }
 
 fn fetch(agent: &ureq::Agent, method: &str, uri: &str) -> anyhow::Result<(u16, Vec<u8>)> {
-    let (uri, blur) = split_blur(uri);
+    let (uri, width) = split_width(uri);
+    let (uri, blur) = split_blur(&uri);
     let (status, bytes) = download(agent, method, &uri)?;
-    match blur {
-        Some(r) if status < 400 => Ok((status, blur_image(&bytes, r)?)),
+    match (blur, width) {
+        (Some(r), _) if status < 400 => Ok((status, blur_image(&bytes, r)?)),
+        (_, Some(w)) if status < 400 => Ok((status, shrink_image(&bytes, w)?)),
         _ => Ok((status, bytes)),
     }
 }

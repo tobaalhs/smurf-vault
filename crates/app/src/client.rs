@@ -207,6 +207,7 @@ impl MainScreen {
                     .id("detect-banner")
                     .occlude()
                     .w_full()
+                    .flex_wrap()
                     .gap(px(12.))
                     .py(px(8.))
                     .pl(px(14.))
@@ -220,7 +221,7 @@ impl MainScreen {
                     .child(
                         v_flex()
                             .flex_1()
-                            .min_w_0()
+                            .min_w(px(180.))
                             .child(div().text_size(px(12.)).text_color(p.text_2).child(intro))
                             .child(div().text_size(px(13.5)).font_weight(FontWeight::BOLD).text_color(p.text).truncate().child(who)),
                     )

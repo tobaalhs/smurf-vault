@@ -42,6 +42,8 @@ fn tile_loading(bg: Hsla, spin: Hsla) -> AnyElement {
 
 /// No se dibujan miles de tarjetas de una.
 const MAX_SKINS: usize = 120;
+/// Skins que se muestran sin buscar: el resto aparece al escribir.
+const MAX_SKINS_IDLE: usize = 40;
 const DELAYS: [u32; 4] = [0, 2, 4, 6];
 
 /// Aplica a las herramientas en segundo plano lo que dice la configuración (al abrir la app y al
@@ -251,16 +253,17 @@ impl ToolsPanel {
         let matches: Vec<&Skin> = skins.iter().filter(|(_, text)| q.is_empty() || text.contains(&q)).map(|(s, _)| s).collect();
         let total = matches.len();
         let note = if q.is_empty() {
-            format!("{total} skins — escribe para buscar")
+            format!("{total} skins — se muestran {MAX_SKINS_IDLE}, escribe para buscar")
         } else {
             format!("{total} resultado{}{}", if total == 1 { "" } else { "s" }, if total > MAX_SKINS { " (se muestran 120)" } else { "" })
         };
-        let cards = matches.into_iter().take(MAX_SKINS).map(|s| {
+        let shown = if q.is_empty() { MAX_SKINS_IDLE } else { MAX_SKINS };
+        let cards = matches.into_iter().take(shown).map(|s| {
             let id = s.id;
             let applying = self.applying == Some(id);
             v_flex()
                 .id(SharedString::from(format!("skin-{id}")))
-                .w(px(100.))
+                .w(px(80.))
                 .gap(px(4.))
                 .p(px(4.))
                 .rounded(px(8.))
@@ -274,16 +277,16 @@ impl ToolsPanel {
                     Some(url) => {
                         let (bg, spin) = (p.surface_3, p.muted);
                         // Con id: GPUI solo muestra el "cargando" de una imagen que tiene id.
-                        img(SharedString::from(url.clone()))
+                        img(SharedString::from(crate::http::thumbnail(url, 144)))
                             .id(SharedString::from(format!("skin-img-{id}")))
                             .w_full()
-                            .h(px(90.))
+                            .h(px(72.))
                             .rounded(px(6.))
                             .object_fit(ObjectFit::Cover)
                             .with_loading(move || tile_loading(bg, spin))
                             .into_any_element()
                     }
-                    None => div().w_full().h(px(90.)).rounded(px(6.)).bg(p.surface_3).into_any_element(),
+                    None => div().w_full().h(px(72.)).rounded(px(6.)).bg(p.surface_3).into_any_element(),
                 })
                 .child(div().text_size(px(11.)).text_color(p.text_2).truncate().child(s.name.clone()))
                 .on_click(cx.listener(move |this, _, window, cx| this.apply_skin(id, window, cx)))
@@ -360,8 +363,9 @@ impl Render for ToolsPanel {
             .when(!c.auto_accept, |d| d.opacity(0.45))
             .child(
                 h_flex()
-                    .gap(px(12.))
-                    .child(div().flex_1().text_size(px(13.)).text_color(p.text_2).child("Esperar antes de aceptar"))
+                    .flex_wrap()
+                    .gap(px(8.))
+                    .child(div().flex_1().min_w(px(140.)).text_size(px(13.)).text_color(p.text_2).child("Esperar antes de aceptar"))
                     .child(segmented(&p).mb(px(0.)).children(delays)),
             )
             .child(note_text("Con espera alcanzas a rechazar la partida tú si no quieres jugarla. Solo hace lo mismo que apretar \"Aceptar\".", &p))
@@ -398,6 +402,7 @@ impl Render for ToolsPanel {
         let autotype = tool(
             Icon::empty().path(assets::icon("keyboard")),
             h_flex()
+                .flex_wrap()
                 .gap(px(8.))
                 .child("Inicio de sesión automático")
                 .child(div().px(px(6.)).rounded(px(5.)).bg(p.surface_3).text_size(px(10.5)).text_color(p.text_2).child("Experimental")),
