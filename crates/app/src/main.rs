@@ -44,7 +44,7 @@ fn main() {
 
         // Grande para que se vea todo el detalle sin bajar (usuario, contraseña, fondo de perfil),
         // pero sin pasarse de la pantalla (sin la barra de tareas) en monitores chicos.
-        let (mut w, mut h) = (1360f32, 900f32);
+        let (mut w, mut h) = (1360f32, 820f32);
         if let Some(area) = cx.primary_display().map(|d| d.visible_bounds()) {
             w = w.min(f32::from(area.size.width) * 0.94);
             h = h.min(f32::from(area.size.height) * 0.94);
