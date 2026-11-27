@@ -128,6 +128,9 @@ impl Palette {
         m.bottom = px(22.);
         m.left = px(22.);
         t.sheet.margin_top = px(60.);
+        // Avisos abajo a la derecha (como en el diseño), máximo 3 a la vez.
+        t.notification.placement = gpui_kit::Anchor::BottomRight;
+        t.notification.max_items = 3;
 
         t.background = self.bg;
         t.foreground = self.text;
