@@ -138,13 +138,17 @@ Section "Smurf Vault" SecMain
 
   ; Accesos directos con el id de la app (para los avisos de Windows). En una actualización solo se
   ; rehace el del escritorio si ya existía.
-  CreateShortCut "$SMPROGRAMS\${LINK}.lnk" "$INSTDIR\${EXE_NAME}"
+  CreateShortCut "$SMPROGRAMS\${LINK}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
   WinShell::SetLnkAUMI "$SMPROGRAMS\${LINK}.lnk" "${APP_ID}"
   ${If} $Updated != "1"
   ${OrIf} ${FileExists} "$DESKTOP\${LINK}.lnk"
-    CreateShortCut "$DESKTOP\${LINK}.lnk" "$INSTDIR\${EXE_NAME}"
+    CreateShortCut "$DESKTOP\${LINK}.lnk" "$INSTDIR\${EXE_NAME}" "" "$INSTDIR\${EXE_NAME}" 0
     WinShell::SetLnkAUMI "$DESKTOP\${LINK}.lnk" "${APP_ID}"
   ${EndIf}
+
+  ; El ícono puede haber cambiado con la versión: Windows guarda en caché el de cada acceso directo, así
+  ; que se le avisa para que lo vuelva a leer (SHCNE_ASSOCCHANGED).
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 
   ; "Agregar o quitar programas": la misma entrada que dejó electron-builder.
   WriteRegStr HKCU "${APP_KEY}" "InstallLocation" "$INSTDIR"
