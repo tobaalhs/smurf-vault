@@ -1,5 +1,6 @@
 //! Archivos que van dentro del ejecutable: los íconos que la app usa además de los que trae la
-//! librería de componentes (Lucide, licencia en assets/icons/LICENSE-LUCIDE) y el logo.
+//! librería de componentes (Lucide, licencia en assets/icons/LICENSE-LUCIDE), el logo y la fuente
+//! del nombre de la app (Bebas Neue, licencia en assets/fonts/LICENSE-BEBAS-NEUE.txt).
 use gpui_kit::{AssetSource, Image, ImageFormat, SharedString};
 use std::borrow::Cow;
 use std::sync::{Arc, OnceLock};
@@ -11,7 +12,19 @@ use std::sync::{Arc, OnceLock};
 #[include = "images/ranks/*.png"]
 #[include = "images/wings/*.webp"]
 #[include = "images/crests/*.webp"]
+#[include = "fonts/*.ttf"]
 struct Embedded;
+
+/// Fuente del nombre "Smurf Vault" de la barra de arriba (solo mayúsculas).
+pub const BRAND_FONT: &str = "Bebas Neue";
+
+/// Registra las fuentes que van dentro del ejecutable.
+pub fn load_fonts(cx: &mut gpui_kit::App) {
+    let fonts: Vec<Cow<'static, [u8]>> = Embedded::iter().filter(|p| p.ends_with(".ttf")).filter_map(|p| Embedded::get(&p)).map(|f| f.data).collect();
+    if let Err(e) = cx.text_system().add_fonts(fonts) {
+        eprintln!("no pude cargar las fuentes: {e}");
+    }
+}
 
 pub struct Assets;
 

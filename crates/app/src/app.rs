@@ -289,7 +289,14 @@ impl AppView {
         let brand = h_flex()
             .gap(px(10.))
             .child(img(assets::logo()).size(px(30.)).rounded(px(8.)))
-            .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Smurf Vault"));
+            .child(
+                div()
+                    .font_family(assets::BRAND_FONT)
+                    .text_size(px(22.))
+                    .pt(px(2.))
+                    .text_color(p.text)
+                    .child("SMURF VAULT"),
+            );
         // Actualización descargada: clic para reiniciar e instalarla (si no, se instala al cerrar).
         let update_chip = crate::desktop::pending_update_version().map(|version| {
             h_flex()
