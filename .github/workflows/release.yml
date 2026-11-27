@@ -1,4 +1,5 @@
-# Al subir un tag vX.Y.Z, GitHub compila el instalador y publica la release.
+# Al subir un tag vX.Y.Z, GitHub compila la versión Rust (GPUI) con installer\build.ps1 y publica la
+# release: instalador, portable y latest.yml (el que leen el actualizador de Electron y el de Rust).
 # Las credenciales de Google viven en el secreto GOOGLE_CREDENTIALS del repo, nunca en el código.
 name: Release
 
@@ -15,23 +16,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - run: npm ci
-
-      - run: npm test
-
       - name: Revisar que el tag coincida con la versión
         shell: pwsh
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
           if ("v$version" -ne "${{ github.ref_name }}") {
-            Write-Error "El tag ${{ github.ref_name }} no coincide con package.json (v$version)"
+            Write-Error "El tag ${{ github.ref_name }} no coincide con Cargo.toml (v$version)"
             exit 1
           }
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Pruebas
+        run: cargo test -p sv-core
 
       - name: Escribir credentials.json desde el secreto
         shell: pwsh
@@ -44,7 +43,35 @@ jobs:
           }
           [IO.File]::WriteAllText("credentials.json", $env:GOOGLE_CREDENTIALS)
 
-      - name: Compilar y publicar
-        run: npx electron-builder --win --publish always
+      # build.ps1 usa el NSIS (y el plugin WinShell) que deja electron-builder en su caché; aquí se
+      # bajan las mismas versiones al mismo lugar.
+      - name: Bajar NSIS
+        shell: pwsh
+        run: |
+          $base = 'https://github.com/electron-userland/electron-builder-binaries/releases/download'
+          $cache = Join-Path $env:LOCALAPPDATA 'electron-builder\Cache\nsis'
+          foreach ($name in 'nsis-3.0.4.1', 'nsis-resources-3.4.1') {
+            $archive = Join-Path $env:RUNNER_TEMP "$name.7z"
+            Invoke-WebRequest "$base/$name/$name.7z" -OutFile $archive
+            7z x $archive "-o$(Join-Path $cache $name)" -y | Out-Null
+            if ($LASTEXITCODE) { throw "No pude descomprimir $name" }
+          }
+
+      - name: Compilar
+        shell: pwsh
+        run: ./installer/build.ps1
+
+      - name: Publicar
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $files = Get-ChildItem dist-rust | ForEach-Object FullName
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @files --clobber
+          } else {
+            gh release create $tag @files --title $tag --generate-notes
+          }
+          if ($LASTEXITCODE) { throw 'No pude publicar la release' }

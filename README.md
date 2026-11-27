@@ -57,9 +57,9 @@ npm run dist     # genera el instalador y la versión portable en dist/
 - `src/riot.js`: API oficial de Riot · `renderer/`: interfaz.
 
 ## Publicar una versión
-1. Sube la versión en `package.json` (por ejemplo `0.2.0`) y haz commit.
-2. Crea y sube el tag: `git tag v0.2.0` y `git push origin v0.2.0`.
-3. GitHub Actions compila el instalador y publica la release; las apps instaladas se actualizan solas.
+1. Sube la versión en `Cargo.toml` (`[workspace.package]`, por ejemplo `0.10.0`) y haz commit.
+2. Crea y sube el tag: `git tag v0.10.0` y `git push origin v0.10.0`.
+3. GitHub Actions compila la versión Rust con `installer/build.ps1` y publica la release; las apps instaladas se actualizan solas.
 
 Las credenciales de Google se toman del secreto `GOOGLE_CREDENTIALS` del repo (Settings → Secrets and
 variables → Actions), con el contenido completo de `credentials.json`. Nunca van en el código.
