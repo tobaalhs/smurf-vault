@@ -32,6 +32,8 @@ pub fn remember_window(window: &gpui_kit::Window) {
     if let Ok(h) = HasWindowHandle::window_handle(window) {
         if let RawWindowHandle::Win32(w) = h.as_raw() {
             MAIN_HWND.store(w.hwnd.get(), Ordering::SeqCst);
+            #[cfg(windows)]
+            win::set_window_icons(w.hwnd.get() as _);
         }
     }
 }
@@ -88,6 +90,31 @@ mod win {
     }
 
     /// true si esta es la única instancia. El mutex vive mientras corra el proceso.
+    /// Íconos de la ventana al tamaño exacto de la pantalla (GPUI carga solo el de 32 px y Windows lo
+    /// agranda borroso con escala de 125 % o más). Salen del .exe, que trae todos los tamaños.
+    pub fn set_window_icons(hwnd: HWND) {
+        use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, WM_SETICON,
+        };
+        // SAFETY: hwnd es la ventana viva de la app; el recurso 1 es el ícono que pone build.rs.
+        unsafe {
+            let dpi = match GetDpiForWindow(hwnd) {
+                0 => 96,
+                d => d,
+            } as i32;
+            let module = GetModuleHandleW(std::ptr::null());
+            for (which, base) in [(ICON_BIG, 32), (ICON_SMALL, 16)] {
+                let size = base * dpi / 96;
+                let icon = LoadImageW(module, 1 as _, IMAGE_ICON, size, size, LR_DEFAULTCOLOR);
+                if !icon.is_null() {
+                    SendMessageW(hwnd, WM_SETICON, which as usize, icon as isize);
+                }
+            }
+        }
+    }
+
     pub fn take_instance_lock() -> bool {
         let name = wide("Local\\SmurfVault.Rust.Instance");
         // SAFETY: nombre terminado en 0; el handle se deja abierto a propósito hasta que salga.
