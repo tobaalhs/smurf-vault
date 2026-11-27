@@ -106,7 +106,8 @@ impl MainScreen {
         }
         if auto_linked {
             window.push_notification(Notification::success(format!("{name} reconocida y vinculada a \"{label}\"")), cx);
-        } else if manual || !self.seen_puuids.contains(&snap.puuid) {
+        } else if manual {
+            // Solo al apretar Actualizar: la detección automática (al desbloquear, cada 30 s) es silenciosa.
             window.push_notification(Notification::success(format!("{name} actualizada desde el cliente")), cx);
         }
         self.seen_puuids.insert(snap.puuid.clone());

@@ -281,7 +281,6 @@ impl AppView {
     pub fn lock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.vault.update(cx, |v, cx| v.change(cx, |s| s.lock()));
         self.show_lock(window, cx);
-        window.push_notification(Notification::info("Bóveda bloqueada"), cx);
     }
 
     fn top_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {

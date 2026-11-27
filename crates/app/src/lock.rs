@@ -5,7 +5,7 @@ use crate::state::{splash_url, Vault};
 use crate::theme::palette;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{h_flex, v_flex, Icon, Sizable};
+use gpui_kit::component::{v_flex, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use rand::seq::SliceRandom;
@@ -215,7 +215,6 @@ impl Render for LockScreen {
         } else {
             "Solo en este PC".to_string()
         };
-        let auto_accept = self.vault.read(cx).store.config.auto_accept;
         let label = |text: &'static str| div().w_full().text_size(px(12.5)).font_weight(FontWeight::SEMIBOLD).text_color(p.text).child(text);
         // Sin cuadro: todo flota al centro sobre el fondo del campeón, como en el diseño.
         let card = v_flex()
@@ -249,23 +248,6 @@ impl Render for LockScreen {
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
             )
             .when_some(self.error.clone(), |d, e| d.child(div().text_size(px(13.)).text_color(p.danger).child(e)))
-            .when(auto_accept && !create, |d| {
-                d.child(
-                    h_flex()
-                        .w_full()
-                        .mt(px(4.))
-                        .gap(px(10.))
-                        .px(px(14.))
-                        .py(px(10.))
-                        .rounded(px(10.))
-                        .border_1()
-                        .border_color(Hsla { a: 0.3, ..p.cyan })
-                        .bg(Hsla { a: 0.07, ..p.cyan })
-                        .child(Icon::empty().path(assets::icon("zap")).size(px(16.)).text_color(p.cyan))
-                        .child(div().text_size(px(12.5)).text_color(p.text_2).child("Autoaceptar sigue activo mientras está bloqueada")),
-                )
-            })
-            .child(div().text_size(px(11.5)).text_color(p.muted).child(if create { "Enter para crear" } else { "Enter para desbloquear" }))
             .when(!google.linked, |d| {
                 d.child(
                     Button::new("lock-google")
