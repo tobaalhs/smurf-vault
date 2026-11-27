@@ -12,6 +12,14 @@ pub struct RiotProgress {
     pub name: String,
 }
 
+/// Páginas de la pantalla principal (barra lateral).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Accounts,
+    Tools,
+    Settings,
+}
+
 pub struct Vault {
     pub store: Store,
     pub game: GameData,
@@ -22,14 +30,22 @@ pub struct Vault {
     pub remote: Option<sv_core::remote::RemoteServer>,
     /// Google Drive: vinculación y subidas en segundo plano.
     pub drive: std::sync::Arc<sv_core::drive::Drive>,
+    /// Página pedida desde otra vista (un chip, la paleta...); la raíz la atiende.
+    pub go_to: Option<Page>,
 }
 
 impl Vault {
+    /// Pide ir a una página de la pantalla principal.
+    pub fn go(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.go_to = Some(page);
+        cx.notify();
+    }
+
     pub fn new() -> Self {
         let store = Store::new(Default::default());
         let game = GameData::load_cache(&store.paths);
         let drive = sv_core::drive::Drive::new(store.paths.clone());
-        Self { store, game, riot_busy: false, riot_progress: None, remote: None, drive }
+        Self { store, game, riot_busy: false, riot_progress: None, remote: None, drive, go_to: None }
     }
 
     /// Enciende o apaga el control desde el celular según la configuración. El código se guarda al

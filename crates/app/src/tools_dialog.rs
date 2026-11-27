@@ -1,12 +1,12 @@
-//! Diálogo de Herramientas: autoaceptar partidas, aparecer desconectado, inicio de sesión automático
-//! y cambiar el fondo de perfil a cualquier skin. Igual que #toolsDialog de la versión Electron. El
-//! control desde el celular llega en la fase siguiente.
+//! Página de Herramientas (barra lateral): autoaceptar partidas, aparecer desconectado, inicio de
+//! sesión automático, control desde el celular, fondo de perfil, actualizar todas con la API de Riot
+//! e importar desde txt.
 use crate::assets;
-use crate::dialogs::{below_bar, dialog_title};
 use crate::state::Vault;
 use crate::tabs::{segment, segmented};
 use crate::theme::{palette, Palette};
 use crate::ui::alpha;
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -68,7 +68,7 @@ pub struct ToolsPanel {
 }
 
 impl ToolsPanel {
-    fn new(vault: Entity<Vault>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(vault: Entity<Vault>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Busca una skin o campeón…"));
         let sub = cx.subscribe(&search, |_, _, _: &InputEvent, cx| cx.notify());
         // El estado del cliente (conectado / esperando partida) se refresca mientras está abierto.
@@ -379,57 +379,158 @@ impl Render for ToolsPanel {
                 entity.update(cx, |this, cx| this.set_config(cx, |c| f(c, v))).ok();
             })
         };
-        // Sin scroll propio: lo baja el diálogo, que tiene su barra (una sola zona con scroll).
+        let accept = tool(
+            Icon::empty().path(assets::icon("zap")),
+            "Autoaceptar partidas",
+            "Acepta la partida por ti cuando sale en el cliente de LoL o TFT. Sigue funcionando con la bóveda bloqueada, mientras Smurf Vault esté abierto.",
+            Some(switch("tool-accept", c.auto_accept, |c, v| c.auto_accept = v)),
+            Some(accept_body.into_any_element()),
+            &p,
+        );
+        let offline = tool(
+            Icon::empty().path(assets::icon("ghost")),
+            "Aparecer desconectado",
+            "Tus amigos te ven desconectado en el LoL aunque tengas el cliente abierto. Se mantiene al cambiar de cuenta, mientras Smurf Vault esté abierto. Al apagarlo vuelves a quedar en línea.",
+            Some(switch("tool-offline", c.appear_offline, |c, v| c.appear_offline = v)),
+            None,
+            &p,
+        );
+        let autotype = tool(
+            Icon::empty().path(assets::icon("keyboard")),
+            h_flex()
+                .gap(px(8.))
+                .child("Inicio de sesión automático")
+                .child(div().px(px(6.)).rounded(px(5.)).bg(p.surface_3).text_size(px(10.5)).text_color(p.text_2).child("Experimental")),
+            "Al pulsar Jugar, Smurf Vault inicia sesión por ti: entra usuario y contraseña directamente en el login de Riot. Si Riot pide verificación o captcha, se abre su ventana para que lo termines. Si lo apagas, Jugar abre el login de Riot y te deja la contraseña copiada para pegarla.",
+            Some(switch("tool-autotype", c.auto_type, |c, v| c.auto_type = v)),
+            None,
+            &p,
+        );
+        let remote = tool(
+            Icon::empty().path(assets::icon("smartphone")),
+            "Control desde el celular",
+            "Acepta la partida, banea, elige campeón, skin, hechizos y runas desde el celular, sin pararte del sillón. El celular tiene que estar en el mismo WiFi que el PC.",
+            Some(switch("tool-remote", c.remote_enabled, |c, v| c.remote_enabled = v)),
+            c.remote_enabled.then(|| self.remote_body(cx)),
+            &p,
+        );
+        let background = tool(
+            Icon::empty().path(assets::icon("image")),
+            "Fondo de perfil",
+            "Cambia el fondo de tu perfil de LoL a cualquier skin, la tengas o no. Necesita el cliente de LoL abierto. Busca una skin o campeón y haz clic para aplicarla.",
+            None,
+            Some(v_flex().gap(px(10.)).child(Input::new(&self.search).prefix(Icon::new(IconName::Search))).child(self.skin_grid(cx)).into_any_element()),
+            &p,
+        );
+        // Actualizar todas con la API de Riot e importar: antes escondidas en el menú ⋯.
+        let (count, has_key) = {
+            let v = self.vault.read(cx);
+            (v.store.data().map(|d| d.accounts.len()).unwrap_or(0), v.store.data().is_some_and(|d| !d.settings.riot_api_key.is_empty()))
+        };
+        let (riot, key, import) = (self.vault.clone(), self.vault.clone(), self.vault.clone());
+        let busy = self.vault.read(cx).riot_busy;
+        let refresh_all = tool(
+            Icon::new(IconName::RefreshCw),
+            "Actualizar todas",
+            "Rangos y datos de todas tus cuentas con la API de Riot, sin abrir el juego.",
+            None,
+            Some(
+                v_flex()
+                    .gap(px(10.))
+                    .child(
+                        h_flex()
+                            .gap(px(8.))
+                            .child(Icon::empty().path(assets::icon("key-round")).size(px(14.)).text_color(if has_key { p.ok } else { p.muted }))
+                            .child(div().flex_1().text_size(px(12.5)).text_color(p.text_2).child(if has_key { "API key guardada" } else { "Sin API key todavía" }))
+                            .child(
+                                div()
+                                    .id("tools-key")
+                                    .text_size(px(12.5))
+                                    .text_color(p.cyan)
+                                    .cursor_pointer()
+                                    .child(if has_key { "Cambiar" } else { "Agregar" })
+                                    .on_click(move |_, window, cx| crate::dialogs::open_riot_key(key.clone(), None, false, window, cx)),
+                            ),
+                    )
+                    .child(
+                        Button::new("tools-refresh-all")
+                            .w_full()
+                            .label(if count == 1 { "Actualizar 1 cuenta".to_string() } else { format!("Actualizar {count} cuentas") })
+                            .loading(busy)
+                            .on_click(move |_, window, cx| crate::client::refresh_riot(riot.clone(), None, window, cx)),
+                    )
+                    .into_any_element(),
+            ),
+            &p,
+        );
+        let import_txt = tool(
+            Icon::empty().path(assets::icon("upload")),
+            "Importar desde txt",
+            "Una cuenta por línea: usuario:contraseña.",
+            None,
+            Some(
+                Button::new("tools-import")
+                    .w_full()
+                    .label("Importar cuentas…")
+                    .on_click(move |_, window, cx| crate::dialogs::open_import(import.clone(), window, cx))
+                    .into_any_element(),
+            ),
+            &p,
+        );
+        let label = |text: &'static str| div().mt(px(8.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(p.muted).child(text);
+        let row = |a: Div, b: Div| h_flex().items_stretch().gap(px(14.)).child(a.flex_1().min_w_0()).child(b.flex_1().min_w_0());
         v_flex()
-            .pr(px(4.))
-            .gap(px(12.))
-            .child(tool(
-                Icon::empty().path(assets::icon("zap")),
-                "Autoaceptar partidas",
-                "Acepta la partida por ti cuando sale en el cliente de LoL o TFT. Sigue funcionando con la bóveda bloqueada, mientras Smurf Vault esté abierto.",
-                Some(switch("tool-accept", c.auto_accept, |c, v| c.auto_accept = v)),
-                Some(accept_body.into_any_element()),
-                &p,
-            ))
-            .child(tool(
-                Icon::empty().path(assets::icon("ghost")),
-                "Aparecer desconectado",
-                "Tus amigos te ven desconectado en el LoL aunque tengas el cliente abierto. Se mantiene al cambiar de cuenta, mientras Smurf Vault esté abierto. Al apagarlo vuelves a quedar en línea.",
-                Some(switch("tool-offline", c.appear_offline, |c, v| c.appear_offline = v)),
-                None,
-                &p,
-            ))
-            .child(tool(
-                Icon::empty().path(assets::icon("keyboard")),
-                h_flex()
-                    .gap(px(8.))
-                    .child("Inicio de sesión automático")
-                    .child(div().px(px(6.)).rounded(px(5.)).bg(p.surface_3).text_size(px(10.5)).text_color(p.text_2).child("Experimental")),
-                "Al pulsar Jugar, Smurf Vault inicia sesión por ti: entra usuario y contraseña directamente en el login de Riot. Si Riot pide verificación o captcha, se abre su ventana para que lo termines. Si lo apagas, Jugar abre el login de Riot y te deja la contraseña copiada para pegarla.",
-                Some(switch("tool-autotype", c.auto_type, |c, v| c.auto_type = v)),
-                None,
-                &p,
-            ))
-            .child(tool(
-                Icon::empty().path(assets::icon("smartphone")),
-                "Control desde el celular",
-                "Acepta la partida, banea, elige campeón, skin, hechizos y runas desde el celular, sin pararte del sillón. El celular tiene que estar en el mismo WiFi que el PC.",
-                Some(switch("tool-remote", c.remote_enabled, |c, v| c.remote_enabled = v)),
-                c.remote_enabled.then(|| self.remote_body(cx)),
-                &p,
-            ))
-            .child(tool(
-                Icon::empty().path(assets::icon("image")),
-                "Fondo de perfil",
-                "Cambia el fondo de tu perfil de LoL a cualquier skin, la tengas o no. Necesita el cliente de LoL abierto. Busca una skin o campeón y haz clic para aplicarla.",
-                None,
-                Some(v_flex().gap(px(10.)).child(Input::new(&self.search).prefix(Icon::new(IconName::Search))).child(self.skin_grid(cx)).into_any_element()),
-                &p,
-            ))
+            .id("tools-page")
+            .size_full()
+            .overflow_y_scrollbar()
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(px(1180.))
+                    .px(px(30.))
+                    .pt(px(24.))
+                    .pb(px(30.))
+                    .gap(px(14.))
+                    .child(
+                        h_flex()
+                            .items_end()
+                            .gap(px(16.))
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .gap(px(4.))
+                                    .child(div().text_size(px(26.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Herramientas"))
+                                    .child(div().text_size(px(13.)).text_color(p.text_2).child("Todo a la vista. Los interruptores se aplican al tiro.")),
+                            )
+                            .when(c.auto_accept, |d| d.child(
+                                h_flex()
+                                    .gap(px(8.))
+                                    .px(px(12.))
+                                    .h(px(30.))
+                                    .rounded_full()
+                                    .border_1()
+                                    .border_color(alpha(dot, 0.35))
+                                    .child(div().size(px(7.)).rounded_full().bg(dot))
+                                    .child(div().text_size(px(12.5)).text_color(if dot == p.ok { p.ok } else { p.text_2 }).child(status_text)),
+                            )),
+                    )
+                    .child(label("EN PARTIDA"))
+                    .child(row(accept, offline))
+                    .child(row(autotype, remote))
+                    .child(label("PERFIL Y DATOS"))
+                    .child(
+                        h_flex()
+                            .items_start()
+                            .gap(px(14.))
+                            .child(background.flex_1().min_w_0())
+                            .child(v_flex().w(px(340.)).flex_none().gap(px(14.)).child(refresh_all).child(import_txt)),
+                    ),
+            )
     }
 }
 
+/// Abre la página de Herramientas.
 pub fn open_tools(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
-    let panel = cx.new(|cx| ToolsPanel::new(vault, window, cx));
-    window.open_dialog(cx, move |dialog, _, _| below_bar(dialog).title(dialog_title("Herramientas")).w(px(644.)).child(panel.clone()));
+    window.close_all_dialogs(cx);
+    vault.update(cx, |v, cx| v.go(crate::state::Page::Tools, cx));
 }

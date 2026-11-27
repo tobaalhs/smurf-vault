@@ -1,7 +1,6 @@
-//! Diálogo de Ajustes: contraseña maestra y colores (la API key de Riot tiene su diálogo, en ⋯). Igual que #settingsDialog de la
-//! versión Electron. Google Drive y las opciones de ventana (bandeja, abrir con Windows) llegan en
-//! sus fases.
-use crate::dialogs::{below_bar, dialog_title};
+//! Página de Ajustes (barra lateral), en tres grupos: Sincronización (Google Drive, API key de
+//! Riot), Cuenta (contraseña maestra) y Personalización (ventana, transparencia y colores). Todo se
+//! guarda al cambiarlo.
 use crate::state::Vault;
 use crate::theme::{palette, Palette};
 use crate::ui::alpha;
@@ -9,7 +8,9 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{h_flex, v_flex, Disableable, Icon, IconName, Sizable, WindowExt};
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::slider::{Slider, SliderEvent, SliderState, SliderValue};
+use gpui_kit::component::{h_flex, v_flex, Disableable, Icon, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use sv_core::store::Store;
@@ -48,11 +49,12 @@ pub struct SettingsPanel {
     pw_error: Option<SharedString>,
     pw_busy: bool,
     colors: Vec<(&'static str, Entity<ColorPickerState>)>,
+    translucency: Entity<SliderState>,
     _subs: Vec<Subscription>,
 }
 
 impl SettingsPanel {
-    fn new(vault: Entity<Vault>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(crate) fn new(vault: Entity<Vault>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let masked = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
             cx.new(|cx| InputState::new(window, cx).masked(true).placeholder(placeholder))
         };
@@ -74,7 +76,22 @@ impl SettingsPanel {
                 (key, state)
             })
             .collect();
-        Self { vault, pw_current, pw_new, pw_new2, pw_error: None, pw_busy: false, colors, _subs: subs }
+        let current = vault.read(cx).store.config.translucency;
+        let translucency = cx.new(|_| SliderState::new().min(0.).max(80.).step(5.).default_value(current as f32));
+        subs.push(cx.subscribe_in(&translucency, window, |this, _, ev: &SliderEvent, window, cx| {
+            let SliderEvent::Change(SliderValue::Single(v)) = ev else { return };
+            let t = v.round() as u32;
+            this.vault.update(cx, |v, cx| {
+                if v.store.config.translucency != t {
+                    v.store.config.translucency = t;
+                    let _ = v.store.save_config();
+                    cx.notify();
+                }
+            });
+            crate::app::apply_translucency(t, window);
+            cx.notify();
+        }));
+        Self { vault, pw_current, pw_new, pw_new2, pw_error: None, pw_busy: false, colors, translucency, _subs: subs }
     }
 
     /// Cambia un color (None = el predeterminado): se ve al tiro y se guarda en este PC.
@@ -231,6 +248,55 @@ impl SettingsPanel {
             )
     }
 
+    /// API key de Riot: si hay una guardada y el botón para cambiarla.
+    fn riot_key_block(&self, cx: &mut Context<Self>) -> Div {
+        let p = palette(cx);
+        let key = self.vault.read(cx).store.data().map(|d| d.settings.riot_api_key.clone()).unwrap_or_default();
+        let masked = if key.len() > 10 { format!("RGAPI-••••••••-{}", &key[key.len() - 4..]) } else { "Sin key guardada".to_string() };
+        let vault = self.vault.clone();
+        block(&p)
+            .child(section(Icon::empty().path(crate::assets::icon("key-round")), "API key de Riot", &p))
+            .child(hint("Se usa para actualizar todas las cuentas sin abrir el juego. Queda cifrada dentro de tu bóveda.", &p))
+            .child(
+                h_flex()
+                    .gap(px(10.))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h(px(32.))
+                            .px(px(12.))
+                            .flex()
+                            .items_center()
+                            .rounded(px(8.))
+                            .border_1()
+                            .border_color(p.border_strong)
+                            .text_size(px(13.))
+                            .text_color(if key.is_empty() { p.muted } else { p.text_2 })
+                            .child(masked),
+                    )
+                    .child(
+                        Button::new("set-riot-key")
+                            .label(if key.is_empty() { "Agregar key" } else { "Cambiar key" })
+                            .on_click(move |_, window, cx| crate::dialogs::open_riot_key(vault.clone(), None, false, window, cx)),
+                    ),
+            )
+    }
+
+    /// Transparencia de la ventana: se ve el escritorio detrás, desenfocado.
+    fn appearance_block(&self, cx: &mut Context<Self>) -> Div {
+        let p = palette(cx);
+        let t = self.vault.read(cx).store.config.translucency;
+        block(&p)
+            .child(section(Icon::empty().path(crate::assets::icon("image")), "Transparencia de la ventana", &p))
+            .child(hint("Deja ver el escritorio detrás de la app, desenfocado, y el fondo del campeón se vuelve semitransparente. En 0 la ventana es opaca.", &p))
+            .child(
+                h_flex()
+                    .gap(px(14.))
+                    .child(div().flex_1().child(Slider::new(&self.translucency)))
+                    .child(div().w(px(44.)).text_size(px(13.)).text_color(p.text_2).child(if t == 0 { "Opaca".to_string() } else { format!("{t}%") })),
+            )
+    }
+
     /// Ventana: seguir en la bandeja al cerrar y abrir al iniciar Windows.
     fn window_block(&self, cx: &mut Context<Self>) -> Div {
         let p = palette(cx);
@@ -252,7 +318,7 @@ impl SettingsPanel {
         let vault = self.vault.clone();
         let entity = cx.entity().downgrade();
         block(&p)
-            .child(section(Icon::new(IconName::Minus), "Ventana", &p))
+            .child(section(Icon::empty().path(crate::assets::icon("panel-left")), "Ventana", &p))
             .child(row(
                 "Al cerrar, seguir en la bandeja",
                 "Queda junto al reloj y autoaceptar y la detección de cuentas siguen funcionando. Para salir del todo: clic derecho en el ícono → Salir.",
@@ -308,65 +374,76 @@ impl Render for SettingsPanel {
                 .child(div().p(px(2.)).rounded(px(6.)).border_1().border_color(p.border_strong).child(ColorPicker::new(state).small()))
                 .child(div().text_size(px(13.)).text_color(p.text_2).child(label))
         });
-        // Sin scroll propio: lo baja el diálogo, que tiene su barra (una sola zona con scroll).
-        v_flex()
-            .pr(px(4.))
-            .gap(px(12.))
-            .child(self.google_block(cx))
-            .child(self.window_block(cx))
+        let password = block(&p)
+            .child(section(Icon::empty().path(crate::assets::icon("lock-keyhole")), "Contraseña maestra", &p))
+            .child(hint("Para cambiarla necesitas la actual. La nueva tampoco se puede recuperar: si la olvidas, pierdes la bóveda.", &p))
             .child(
-                block(&p)
-                    .child(section(Icon::empty().path(crate::assets::icon("lock-keyhole")), "Contraseña maestra", &p))
-                    .child(hint("Para cambiarla necesitas la actual. La nueva tampoco se puede recuperar: si la olvidas, pierdes la bóveda.", &p))
-                    .child(Input::new(&self.pw_current))
-                    .child(h_flex().gap(px(8.)).child(div().flex_1().child(Input::new(&self.pw_new))).child(div().flex_1().child(Input::new(&self.pw_new2))))
+                h_flex()
+                    .gap(px(8.))
+                    .child(div().flex_1().child(Input::new(&self.pw_current)))
+                    .child(div().flex_1().child(Input::new(&self.pw_new)))
+                    .child(div().flex_1().child(Input::new(&self.pw_new2))),
+            )
+            .child(
+                h_flex()
+                    .gap(px(10.))
                     .child(
-                        h_flex()
-                            .gap(px(10.))
-                            .child(
-                                Button::new("pw-change")
-                                    .primary()
-                                    .label("Cambiar contraseña")
-                                    .loading(self.pw_busy)
-                                    .on_click(cx.listener(|this, _, window, cx| this.change_password(window, cx))),
-                            )
-                            .when_some(self.pw_error.clone(), |d, e| d.child(div().text_size(px(13.)).text_color(p.danger).child(e))),
+                        Button::new("pw-change")
+                            .label("Cambiar contraseña")
+                            .loading(self.pw_busy)
+                            .on_click(cx.listener(|this, _, window, cx| this.change_password(window, cx))),
+                    )
+                    .when_some(self.pw_error.clone(), |d, e| d.child(div().text_size(px(13.)).text_color(p.danger).child(e))),
+            );
+        let colors = block(&p)
+            .child(
+                h_flex()
+                    .child(section(Icon::empty().path(crate::assets::icon("sparkles")), "Colores", &p))
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("theme-reset")
+                            .small()
+                            .label("Restablecer colores")
+                            .disabled(!customized)
+                            .on_click(cx.listener(|this, _, window, cx| this.reset_colors(window, cx))),
                     ),
             )
+            .child(hint("Cambia los colores a tu gusto: se ven al tiro y se guardan en este PC.", &p))
+            .child(h_flex().flex_wrap().gap(px(10.)).children(swatches));
+        let group = |text: &'static str| div().mt(px(10.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(p.muted).child(text);
+        v_flex()
+            .id("settings-page")
+            .size_full()
+            .overflow_y_scrollbar()
             .child(
-                block(&p)
+                v_flex()
+                    .w_full()
+                    .max_w(px(820.))
+                    .px(px(30.))
+                    .pt(px(24.))
+                    .pb(px(30.))
+                    .gap(px(12.))
                     .child(
                         h_flex()
-                            .child(section(Icon::empty().path(crate::assets::icon("sparkles")), "Colores", &p))
-                            .child(div().flex_1())
-                            .child(
-                                Button::new("theme-reset")
-                                    .small()
-                                    .label("Restablecer colores")
-                                    .disabled(!customized)
-                                    .on_click(cx.listener(|this, _, window, cx| this.reset_colors(window, cx))),
-                            ),
+                            .items_end()
+                            .child(div().flex_1().text_size(px(26.)).font_weight(FontWeight::BOLD).text_color(p.text).child("Ajustes"))
+                            .child(div().text_size(px(12.)).text_color(p.muted).child(format!("Smurf Vault v{}", env!("CARGO_PKG_VERSION")))),
                     )
-                    .child(hint("Cambia los colores a tu gusto: se ven al tiro y se guardan en este PC.", &p))
-                    .child(h_flex().flex_wrap().gap(px(10.)).children(swatches)),
+                    .child(group("SINCRONIZACIÓN"))
+                    .child(self.google_block(cx))
+                    .child(self.riot_key_block(cx))
+                    .child(group("CUENTA"))
+                    .child(password)
+                    .child(group("PERSONALIZACIÓN"))
+                    .child(self.window_block(cx))
+                    .child(self.appearance_block(cx))
+                    .child(colors),
             )
-            .child(div().h(px(1.)).bg(alpha(p.border, 0.)))
     }
 }
 
+/// Abre la página de Ajustes.
 pub fn open_settings(vault: Entity<Vault>, window: &mut Window, cx: &mut App) {
-    let panel = cx.new(|cx| SettingsPanel::new(vault, window, cx));
-    window.open_dialog(cx, move |dialog, _, cx| {
-        let p = palette(cx);
-        below_bar(dialog).title(dialog_title("Ajustes")).w(px(560.)).child(panel.clone()).footer(
-            h_flex()
-                .w_full()
-                .gap(px(8.))
-                .child(div().text_size(px(12.)).text_color(p.muted).child(format!("Smurf Vault v{}", env!("CARGO_PKG_VERSION"))))
-                .child(div().flex_1())
-                // Todo se guarda al cambiarlo: solo hace falta cerrar.
-                .child(Button::new("settings-close").label("Cerrar").on_click(|_, window, cx| window.close_dialog(cx))),
-        )
-    });
-    let _ = IconName::Settings;
+    window.close_all_dialogs(cx);
+    vault.update(cx, |v, cx| v.go(crate::state::Page::Settings, cx));
 }
