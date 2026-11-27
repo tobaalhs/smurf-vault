@@ -46,7 +46,7 @@ impl Default for Config {
             remote_enabled: false,
             remote_token: None,
             lock_skins: Vec::new(),
-            translucency: 0,
+            translucency: 60,
             translucent_bars_only: false,
             extra: Map::new(),
         }

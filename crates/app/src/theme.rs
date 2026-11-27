@@ -195,9 +195,6 @@ impl Palette {
         t.tokens.button_primary = ThemeToken::new(self.gold, grad(self.gold_hi, self.gold_lo));
         t.tokens.button_primary_hover = ThemeToken::new(self.gold_hi, grad(lighten(self.gold_hi, 0.07), lighten(self.gold, 0.07)));
         t.tokens.button_primary_active = ThemeToken::new(self.gold, grad(self.gold, self.gold_lo));
-        // La raíz de la librería pinta este fondo debajo de todo: va transparente y cada pantalla pinta
-        // el suyo, así la ventana translúcida deja ver el escritorio.
-        t.tokens.background = gpui_kit::transparent_black().into();
         Theme::sync_base(cx);
         cx.set_global(self);
     }

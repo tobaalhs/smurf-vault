@@ -58,6 +58,21 @@ impl StageBg {
     }
 }
 
+/// Opacidades de las cuatro copias del splash (en el orden en que se pintan: (0,0), (1,0), (0,1),
+/// (1,1) píxeles de desplazamiento) para un desplazamiento fraccionario (fx, fy) con opacidad total
+/// `total`: pintadas una sobre otra, la copia i aporta total × su peso bilineal.
+fn layer_alphas(fx: f32, fy: f32, total: f32) -> [f32; 4] {
+    let w = [(1. - fx) * (1. - fy), fx * (1. - fy), (1. - fx) * fy, fx * fy];
+    let mut a = [0f32; 4];
+    // Desde la de más arriba: lo que deja pasar todo lo pintado encima.
+    let mut through = 1f32;
+    for i in (0..4).rev() {
+        a[i] = if through > 1e-4 { (total * w[i] / through).clamp(0., 1.) } else { 0. };
+        through *= 1. - a[i];
+    }
+    a
+}
+
 /// Franja de degradado horizontal entre dos posiciones (en fracción del ancho).
 fn band(from: f32, to: f32, a: Hsla, b: Hsla) -> Div {
     div().absolute().top_0().bottom_0().left(relative(from)).w(relative(to - from)).bg(linear_gradient(90., linear_color_stop(a, 0.), linear_color_stop(b, 1.)))
@@ -121,9 +136,9 @@ impl Render for StageBg {
                 let url = SharedString::from(crate::http::blurred(&url, 2));
                 let (ix, iy) = (self.x.floor(), self.y.floor());
                 let (fx, fy) = (self.x - ix, self.y - iy);
-                // Opacidades para que, pintando una encima de otra, cada copia aporte su peso.
-                let w11 = fx * fy;
-                let w01 = if w11 < 0.999 { fy * (1. - fx) / (1. - w11) } else { 0. };
+                // Opacidad de cada copia para que, pintadas una encima de otra, cada una aporte justo su
+                // peso y el total sea la opacidad pedida (también con la ventana translúcida).
+                let [a00, a10, a01, a11] = layer_alphas(fx, fy, splash_o);
                 let layer = |dx: f32, dy: f32, opacity: f32| {
                     img(url.clone())
                         .absolute()
@@ -132,18 +147,13 @@ impl Render for StageBg {
                         .w(px(vw + 60.))
                         .h(px(vh + 60.))
                         .object_fit(ObjectFit::Cover)
-                        .opacity(opacity * splash_o)
+                        .opacity(opacity)
                 };
-                if o < 1. {
-                    // Con la ventana translúcida, una sola copia en el píxel más cercano.
-                    let (dx, dy) = (self.x.round() - ix, self.y.round() - iy);
-                    return d.child(layer(dx, dy, 1.)).child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16 * o)));
-                }
-                d.child(layer(0., 0., 1.))
-                    .when(fx > 0.002, |d| d.child(layer(1., 0., fx)))
-                    .when(w01 > 0.002, |d| d.child(layer(0., 1., w01)))
-                    .when(w11 > 0.002, |d| d.child(layer(1., 1., w11)))
-                    .child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16)))
+                d.when(a00 > 0.002, |d| d.child(layer(0., 0., a00)))
+                    .when(a10 > 0.002, |d| d.child(layer(1., 0., a10)))
+                    .when(a01 > 0.002, |d| d.child(layer(0., 1., a01)))
+                    .when(a11 > 0.002, |d| d.child(layer(1., 1., a11)))
+                    .child(div().absolute().inset_0().bg(hsla(0., 0., 0., 0.16 * o)))
             })
             // Sombra suave detrás del nombre y los rangos, y velos para que la rueda y el texto se lean.
             .child(glow(0.6, 0.38, alpha(p.bg, 0.32 * o), 260.))

@@ -739,7 +739,9 @@ impl gpui_base::RootPlugin for WindowState {
         surface.style().refine(
             &gpui::StyleRefinement::default()
                 .font_family(cx.theme().font_family.clone())
-                .bg(cx.theme().tokens.background)
+                // [Smurf Vault] Sin fondo propio: cada pantalla pinta el suyo, y así la ventana
+                // translúcida deja ver el escritorio (los diálogos y paneles siguen usando el fondo
+                // del tema).
                 .text_color(cx.theme().foreground)
                 .rounded_tl(radii.top_left)
                 .rounded_tr(radii.top_right)
